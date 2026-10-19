@@ -3,107 +3,93 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LivePhotoForge - 极速将视频转为苹果实况图 (Live Photo)</title>
-    <meta name="description" content="LivePhotoForge 是一款专为 Mac 用户打造的工具，用于将普通的 MP4/MOV 视频文件，无损、极速地转换为真正的苹果实况图 (Live Photo)，并全自动导入到您的 Mac 相册中，通过 iCloud 瞬间同步到 iPhone。">
-    <meta name="keywords" content="Live Photo, 实况图, 视频转实况图, 苹果相册, macOS工具, MP4转Live Photo, 小红书实况图, iPhone实况图">
+    <meta name="theme-color" content="#f5f7fb">
+    <title>cduyzh MediaForge · Mac 视频转实况与媒体工具</title>
+    <meta name="description" content="在 Mac 上将视频转换为 Live Photo、选择封面与片段、制作 GIF，并按需导入照片图库。了解 cduyzh MediaForge 的下载、更新与命令行使用方式。">
     <link rel="stylesheet" href="style.css">
+    <script src="script.js" defer></script>
 </head>
 <body>
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
     <header class="navbar">
-        <div class="container">
-            <h1 class="logo">LivePhotoForge</h1>
-            <nav>
-                <a href="#features">功能特性</a>
-                <a href="#download">下载安装</a>
-                <a href="#cli">CLI 模式</a>
-                <a href="https://github.com/cduyzh/LivePhotoForge" target="_blank" class="github-link">GitHub</a>
+        <div class="container nav-inner">
+            <a class="logo" href="#main-content" aria-label="cduyzh MediaForge 首页" translate="no"><span class="brand-mark" aria-hidden="true">M</span>cduyzh MediaForge</a>
+            <nav aria-label="主要导航">
+                <a href="#features">功能</a>
+                <a href="#download">下载与更新</a>
+                <a href="#cli">命令行</a>
+                <a href="https://github.com/cduyzh/LivePhotoForge" class="github-link">GitHub <span aria-hidden="true">↗</span></a>
             </nav>
         </div>
     </header>
 
-    <section class="hero">
-        <div class="container">
-            <h2>一键将视频变为真正的实况图</h2>
-            <p>基于苹果底层 AVFoundation 原生开发。彻底告别复杂的参数，只需一次拖拽，瞬间在相册里生成完美适配 iPhone 的 Live Photo。</p>
-            <div class="cta-buttons">
-                <a href="https://github.com/cduyzh/LivePhotoForge/releases/latest/download/LivePhotoForge.dmg" class="btn btn-primary" id="download-dmg-btn">
-                    <span class="icon">🍎</span> 下载 macOS 客户端
-                    <small>v1.0.0 (支持 M 系列 & Intel)</small>
-                </a>
-                <a href="#cli" class="btn btn-secondary">终端极客？试试 CLI</a>
-            </div>
-            <div class="hero-image">
-                <!-- 占位图，后续可替换为真实的 App 截图 -->
-                <div class="app-mockup">
-                    <div class="window-bar">
-                        <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+    <main id="main-content" tabindex="-1">
+        <section class="hero" aria-labelledby="hero-title">
+            <div class="container hero-grid">
+                <div class="hero-copy">
+                    <p class="eyebrow">为 Mac 上的媒体日常而做</p>
+                    <h1 id="hero-title">视频转实况，<br><span>整理也更顺手。</span></h1>
+                    <p class="hero-description">挑一段视频，留一个生动的瞬间。在 Mac 上制作 Live Photo、生成 GIF、整理网络素材，按需导入“照片”。</p>
+                    <div class="cta-buttons">
+                        <a href="#download" class="btn btn-primary">下载与安装 <span aria-hidden="true">↓</span></a>
+                        <a href="#features" class="btn btn-secondary">了解功能 <span aria-hidden="true">→</span></a>
                     </div>
-                    <div class="window-content">
-                        <h3>📹 拖拽视频文件到这里</h3>
-                        <p>支持 MP4 / MOV / M4V / MKV</p>
+                    <p class="compatibility">macOS 14 及以上 · 当前构建面向 Apple 芯片</p>
+                </div>
+                <figure class="workflow-preview">
+                    <div class="preview-heading"><span class="preview-status" aria-hidden="true"></span>一个素材，几种可能<span class="preview-tag">工作流</span></div>
+                    <div class="source-file"><span class="file-symbol" aria-hidden="true">▶</span><div><strong>从一段视频开始</strong><span>添加本地文件，或粘贴素材链接</span></div></div>
+                    <div class="workflow-line" aria-hidden="true"></div>
+                    <div class="output-grid">
+                        <div class="output-tile live-tile"><span class="output-symbol" aria-hidden="true">◎</span><strong translate="no">Live Photo</strong><span>留住动态瞬间</span></div>
+                        <div class="output-tile gif-tile"><span class="output-symbol" aria-hidden="true">▧</span><strong translate="no">GIF</strong><span>分享一小段精彩</span></div>
                     </div>
+                    <div class="preview-footer"><span aria-hidden="true">↳</span> 保存到本机，或将实况导入“照片”</div>
+                    <figcaption>工作流程示意，实际操作以应用界面为准</figcaption>
+                </figure>
+            </div>
+        </section>
+
+        <section id="features" class="features section" aria-labelledby="features-title">
+            <div class="container">
+                <div class="section-heading"><p class="eyebrow">把常用操作放在一起</p><h2 id="features-title">从处理，到整理。</h2><p>围绕本地视频与网络素材，完成制作和归档。</p></div>
+                <div class="feature-grid">
+                    <article class="feature-card"><span class="feature-number" aria-hidden="true">01</span><h3>视频转为实况</h3><p>使用 macOS 原生媒体框架生成配对的图像与视频，可保存文件或导入“照片”图库。</p></article>
+                    <article class="feature-card"><span class="feature-number" aria-hidden="true">02</span><h3>选好片段与封面</h3><p>调整视频起止时间、播放速度与封面帧，让需要保留的内容更集中。</p></article>
+                    <article class="feature-card"><span class="feature-number" aria-hidden="true">03</span><h3>网络素材分类保存</h3><p>解析支持的平台链接，按平台、日期与媒体类型整理文件。可用画质与下载结果取决于来源和登录状态。</p></article>
+                    <article class="feature-card"><span class="feature-number" aria-hidden="true">04</span><h3>GIF 与批量处理</h3><p>将视频片段转成 GIF，也可通过同一个 App 内的命令行入口处理多个视频文件。</p></article>
+                </div>
+                <p class="section-note">实况导入需要“照片”权限；跨设备同步需要启用 iCloud 照片，完成时间取决于网络与系统同步状态。</p>
+            </div>
+        </section>
+
+        <section id="download" class="download-section section" aria-labelledby="download-title">
+            <div class="container download-grid">
+                <div class="download-copy"><p class="eyebrow">安装一次，始终从同一处打开</p><h2 id="download-title">应用程序里，<br>留一个最新版。</h2><p>下载和更新都从官方发布页开始。将 App 固定放在“应用程序”文件夹，方便确认正在使用的版本。</p><a href="https://github.com/cduyzh/LivePhotoForge/releases/latest" class="btn btn-primary" id="download-dmg-btn">查看版本与下载 <span aria-hidden="true">↗</span></a><p class="download-meta">Apple 芯片 · macOS 14+<br>版本、安装包与发布说明以 GitHub 发布页为准。</p></div>
+                <ol class="install-steps">
+                    <li><span class="step-number" aria-hidden="true">1</span><div><h3>下载并打开安装包</h3><p>在发布页的 Assets 中选择适合 Apple 芯片 Mac 的安装包，下载后打开。</p></div></li>
+                    <li><span class="step-number" aria-hidden="true">2</span><div><h3>退出旧版，同名替换</h3><p>将 <code translate="no">cduyzhMediaForge.app</code> 放入“应用程序”。已有同名应用时，先退出正在运行的旧版，再选择替换。</p></div></li>
+                    <li><span class="step-number" aria-hidden="true">3</span><div><h3>从“应用程序”启动</h3><p>以后统一从这里打开。源码中的 <code translate="no">build</code> 目录是构建产物位置，不作为日常启动入口；版本可在“关于”中确认。</p></div></li>
+                </ol>
+            </div>
+        </section>
+
+        <section id="cli" class="cli-section section" aria-labelledby="cli-title">
+            <div class="container">
+                <div class="section-heading"><p class="eyebrow">图形界面与终端，共用一个 App</p><h2 id="cli-title">也能融入你的命令行。</h2><p>先完成上方安装，再直接调用“应用程序”里的可执行文件。</p></div>
+                <div class="cli-panel">
+                    <div class="code-block"><div class="code-header"><h3>查看完整帮助</h3><button type="button" class="copy-btn" data-copy="cli-help" aria-label="复制查看帮助命令">复制命令</button></div><pre tabindex="0" aria-label="查看帮助命令"><code id="cli-help" translate="no">"/Applications/cduyzhMediaForge.app/Contents/MacOS/cduyzhMediaForge" --help</code></pre></div>
+                    <p class="cli-note">CLI 与图形界面使用同一份程序，更新 App 后即使用新版本。</p>
+                    <div class="code-block"><div class="code-header"><h3>转为实况并导入“照片”</h3><button type="button" class="copy-btn" data-copy="cli-import" aria-label="复制转换并导入命令">复制命令</button></div><pre tabindex="0" aria-label="转换并导入命令"><code id="cli-import" translate="no">"/Applications/cduyzhMediaForge.app/Contents/MacOS/cduyzhMediaForge" "/path/to/video.mp4"</code></pre></div>
+                    <div class="code-block"><div class="code-header"><h3>指定封面，保存配对文件</h3><button type="button" class="copy-btn" data-copy="cli-output" aria-label="复制指定封面并保存文件命令">复制命令</button></div><pre tabindex="0" aria-label="指定封面并保存文件命令"><code id="cli-output" translate="no">"/Applications/cduyzhMediaForge.app/Contents/MacOS/cduyzhMediaForge" --frame-time 2.5 -o "$HOME/Desktop/LivePhotos" "/path/to/video.mp4"</code></pre></div>
+                    <p class="cli-note">将 <code translate="no">/path/to/video.mp4</code> 替换为你的文件路径。封面时间需位于视频时长内；指定 <code translate="no">-o</code> 时仅保存文件，不自动导入图库。</p>
+                    <p id="copy-status" class="copy-status" role="status" aria-live="polite" aria-atomic="true">可复制命令到终端运行。</p>
+                    <noscript><p class="cli-note">自动复制需要 JavaScript；你可以手动选择并复制上方命令。</p></noscript>
                 </div>
             </div>
-        </div>
-    </section>
+        </section>
+    </main>
 
-    <section id="features" class="features">
-        <div class="container">
-            <h2 class="section-title">为什么选择 LivePhotoForge？</h2>
-            <div class="feature-grid">
-                <div class="feature-card">
-                    <div class="icon">⚡️</div>
-                    <h3>极速无损</h3>
-                    <p>针对 H.264 视频采用 Passthrough 模式，流复制不重编码，10 秒视频处理仅需 0.04 秒。</p>
-                </div>
-                <div class="feature-card">
-                    <div class="icon">🔗</div>
-                    <h3>底层原生配对</h3>
-                    <p>利用系统 PHAssetCreationRequest API，在操作系统底层完美“熔合”图像与视频，100% 兼容 iPhone。</p>
-                </div>
-                <div class="feature-card">
-                    <div class="icon">☁️</div>
-                    <h3>无缝同步</h3>
-                    <p>不再需要隔空投送 (AirDrop)！处理后自动存入 Mac 图库，iCloud 会在几秒内将其同步到您的手机相册中。</p>
-                </div>
-                <div class="feature-card">
-                    <div class="icon">💻</div>
-                    <h3>双模架构</h3>
-                    <p>同一个安装包，既是美观的图形界面应用，也是强大的命令行 (CLI) 工具，满足不同场景需求。</p>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <section id="cli" class="cli-section">
-        <div class="container">
-            <h2 class="section-title">专为极客打造的 CLI</h2>
-            <p>通过一行命令即可安装 CLI 版本，完美融入您的自动化工作流脚本中。</p>
-            
-            <div class="code-block">
-                <div class="code-header">终端 (Terminal)</div>
-                <pre><code id="install-cmd">sudo curl -L "https://github.com/cduyzh/LivePhotoForge/releases/latest/download/LivePhotoForge" -o /usr/local/bin/livephoto && sudo chmod +x /usr/local/bin/livephoto</code></pre>
-                <button class="copy-btn" onclick="copyCode()">复制命令</button>
-            </div>
-
-            <div class="cli-usage">
-                <h3>常见用法</h3>
-                <ul>
-                    <li><code>livephoto video.mp4</code> - 自动转换并直接导入相册</li>
-                    <li><code>livephoto --frame-time 2.5 video.mp4</code> - 截取视频第 2.5 秒作为封面</li>
-                    <li><code>livephoto -o ~/Desktop/LivePhotos/ video.mp4</code> - 仅输出到指定目录，不导入图库</li>
-                </ul>
-            </div>
-        </div>
-    </section>
-
-    <footer>
-        <div class="container">
-            <p>&copy; 2026 LivePhotoForge. 基于 MIT 协议开源。</p>
-            <p>Developed with ❤️ using Swift and SwiftUI.</p>
-        </div>
-    </footer>
-
-    <script src="script.js"></script>
+    <footer><div class="container footer-inner"><p>&copy; 2026 <span translate="no">cduyzh MediaForge</span> <span class="footer-detail">使用 Swift 与 SwiftUI 构建</span></p><a href="https://github.com/cduyzh/LivePhotoForge">源码与使用说明 <span aria-hidden="true">↗</span></a></div></footer>
 </body>
 </html>

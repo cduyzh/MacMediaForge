@@ -1,3 +1,7 @@
 build/
+.build.noindex/
+dist/
 out/
 .DS_Store
+__pycache__/
+input.gif
