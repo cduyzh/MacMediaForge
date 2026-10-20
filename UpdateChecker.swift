@@ -53,6 +53,7 @@ public enum AppUpdateStatus: Equatable {
     case checking
     case updateAvailable(AppReleaseInfo)
     case upToDate(version: String)
+    case localVersionAhead(version: String, latestRelease: AppReleaseInfo)
     case failed(reason: String)
 
     public static func == (lhs: AppUpdateStatus, rhs: AppUpdateStatus) -> Bool {
@@ -61,6 +62,8 @@ public enum AppUpdateStatus: Equatable {
             return true
         case (.upToDate(let v1), .upToDate(let v2)):
             return v1 == v2
+        case (.localVersionAhead(let v1, let r1), .localVersionAhead(let v2, let r2)):
+            return v1 == v2 && r1.tagName == r2.tagName
         case (.failed(let r1), .failed(let r2)):
             return r1 == r2
         case (.updateAvailable(let i1), .updateAvailable(let i2)):
@@ -155,6 +158,8 @@ public class UpdateChecker: ObservableObject {
                 if isUserInitiated {
                     showUpdateSheet = true
                 }
+            } else if Self.isRemoteVersion(current, newerThan: release.tagName) {
+                status = .localVersionAhead(version: current, latestRelease: release)
             } else {
                 status = .upToDate(version: current)
             }

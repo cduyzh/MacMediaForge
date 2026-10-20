@@ -222,6 +222,28 @@ struct ForgeInstallationCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
 
+                case .localVersionAhead(let version, let release):
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "hammer.circle.fill")
+                            .foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("本机版本 \(version) 高于 GitHub 最新发布 \(release.tagName)")
+                                .font(.system(size: 12, weight: .medium))
+                            Text("此版本尚未发布为 GitHub Release。")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("查看 Release") {
+                            updater.openReleaseWebPage()
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.system(size: 11))
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+
                 case .updateAvailable(let release):
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
