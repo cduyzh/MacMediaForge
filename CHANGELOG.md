@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 网络脚本不再把来自网页响应的 JavaScript 传给 Node 执行；脚本状态只按 JSON 安全解析。
 - 保留 Twitter 多视频清晰度调整失败警告；失败视频跳过去水印，避免将未符合所选清晰度的文件当作成功成果。
 - 哔哩哔哩单段 MP4 回退沿用用户所选清晰度，而不是固定请求 720P。
-- 当本机版本高于 GitHub 最新 Release 时，更新页显示为未发布版本，不再误报为最新。
+- 当本机版本高于 GitHub 最新 Release 时，更新页面和 CLI 会显示该版本尚未发布，不再误报为最新。
 - CLI 通过 PATH 符号链接查询版本时，会读取该链接所指 App 的实际版本和构建号。
 
 ## [1.9.0] - 2026-10-18

@@ -88,6 +88,9 @@ class CLIHandler {
                                 print("\n📦 DMG 安装包下载: \(dmg)")
                             }
                             print("🔗 GitHub 地址: \(release.htmlURL)")
+                        } else if UpdateChecker.isRemoteVersion(current, newerThan: release.tagName) {
+                            print("⚠️ 本机版本 \(current) 高于 GitHub 最新 Release \(release.tagName)，本机版本尚未发布。")
+                            print("🔗 GitHub Release: \(release.htmlURL)")
                         } else {
                             print("✅ 当前已是最新版本 (v\(current))")
                         }
