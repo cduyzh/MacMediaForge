@@ -2,6 +2,23 @@ import Foundation
 import AVFoundation
 import Photos
 
+private final class CLIExitCodeBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Int32 = 1
+
+    func set(_ newValue: Int32) {
+        lock.lock()
+        value = newValue
+        lock.unlock()
+    }
+
+    func get() -> Int32 {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
 /// CLI 模式处理器
 /// 用法:
 ///   cduyzh-media video1.mp4 video2.mp4              → 直接导入系统相册
@@ -124,16 +141,28 @@ class CLIHandler {
         // 未指定 -o 时，且非 GIF 模式，默认导入相册
         let shouldImport = !downloadOnly && (forceImport || (outputDir == nil && !asGIF))
 
+        // Freeze parsed options before handing them to the asynchronous task.
+        let inputFiles = videoFiles
+        let outputDirectory = outputDir
+        let downloadOnlyMode = downloadOnly
+        let removeWatermark = shouldRemoveWatermark
+        let networkQuality = videoQuality
+        let gifMode = asGIF
+        let coverFrameTime = frameTime
+        let editStartTime = startTime
+        let editEndTime = endTime
+        let playbackSpeed = speed
+
         // ── 异步执行 ──
         let sema = DispatchSemaphore(value: 0)
-        var exitCode: Int32 = 1
+        let exitCode = CLIExitCodeBox()
         Task {
             defer { sema.signal() }
 
             var successCount = 0
             var failCount = 0
 
-            for input in videoFiles {
+            for input in inputFiles {
                 let path = input.range(of: #"^BV[A-Za-z0-9]{10}$"#, options: .regularExpression) != nil
                     ? "https://www.bilibili.com/video/" + input : input
                 var url: URL
@@ -144,7 +173,7 @@ class CLIHandler {
                     do {
                         let platform = PlatformCategory.detect(from: path)
                         let targetDirURL: URL
-                        if let dir = outputDir {
+                        if let dir = outputDirectory {
                             targetDirURL = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath)
                         } else {
                             targetDirURL = CategorizedStorageManager.categoryDirectory(platform: platform, category: .video)
@@ -155,8 +184,8 @@ class CLIHandler {
                             url: path,
                             targetDirectory: targetDirURL,
                             videoOutputDir: targetDirURL,
-                            shouldRemoveWatermark: shouldRemoveWatermark,
-                            quality: videoQuality
+                            shouldRemoveWatermark: removeWatermark,
+                            quality: networkQuality
                         ) { progress in
                             print("  \(progress)")
                         }
@@ -164,7 +193,7 @@ class CLIHandler {
                         let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
                         print("  ✅ 下载完成: \(url.path) (\(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file)))")
 
-                        if downloadOnly {
+                        if downloadOnlyMode {
                             successCount += 1
                             continue
                         }
@@ -174,7 +203,7 @@ class CLIHandler {
                         continue
                     }
                 } else {
-                    guard !downloadOnly else {
+                    guard !downloadOnlyMode else {
                         printErr("--download 仅适用于网络链接：\(path)")
                         failCount += 1
                         continue
@@ -193,11 +222,11 @@ class CLIHandler {
                 do {
                     let asset = AVURLAsset(url: url)
                     let duration = CMTimeGetSeconds(try await asset.load(.duration))
-                    let (_, end) = try ConversionEngine.validatedEditRange(duration: duration, startTime: startTime, endTime: endTime, speed: speed)
-                    if !asGIF && frameTime >= end - startTime { throw ConversionError.invalidEditRange }
-                    if asGIF {
-                        print("  [1/1] 转换为优化版 GIF (start:\(startTime) end:\(endTime) speed:\(speed))…")
-                        let outDir = outputDir ?? FileManager.default.currentDirectoryPath
+                    let (_, end) = try ConversionEngine.validatedEditRange(duration: duration, startTime: editStartTime, endTime: editEndTime, speed: playbackSpeed)
+                    if !gifMode && coverFrameTime >= end - editStartTime { throw ConversionError.invalidEditRange }
+                    if gifMode {
+                        print("  [1/1] 转换为优化版 GIF (start:\(editStartTime) end:\(editEndTime) speed:\(playbackSpeed))…")
+                        let outDir = outputDirectory ?? FileManager.default.currentDirectoryPath
                         let fm = FileManager.default
                         if !fm.fileExists(atPath: outDir) {
                             try fm.createDirectory(atPath: outDir, withIntermediateDirectories: true)
@@ -207,9 +236,9 @@ class CLIHandler {
                         try await GIFConverter.convertToGIF(
                             videoURL: url,
                             outputURL: destGIF,
-                            startTime: startTime,
-                            endTime: endTime,
-                            speed: speed
+                            startTime: editStartTime,
+                            endTime: editEndTime,
+                            speed: playbackSpeed
                         )
                         let gifSize = (try? fm.attributesOfItem(atPath: destGIF.path)[.size] as? Int64) ?? 0
                         print("  ✅ 已输出 GIF: \(destGIF.path) (\(ByteCountFormatter.string(fromByteCount: gifSize, countStyle: .file)))")
@@ -219,17 +248,17 @@ class CLIHandler {
                         defer { for file in temporaryFiles { try? FileManager.default.removeItem(at: file) } }
 
                         // Step 1: 提取封面帧
-                        print("  [1/3] 提取封面帧 (t=\(frameTime)s)…")
-                        let frameURL = try await ConversionEngine.extractFrame(from: url, at: startTime + frameTime, assetIdentifier: assetID)
+                        print("  [1/3] 提取封面帧 (t=\(coverFrameTime)s)…")
+                        let frameURL = try await ConversionEngine.extractFrame(from: url, at: editStartTime + coverFrameTime, assetIdentifier: assetID)
                         temporaryFiles.append(frameURL)
 
                         // Step 2: 转封装/裁剪/变速为 MOV
-                        print("  [2/3] 转换为 MOV 容器 (start:\(startTime) end:\(endTime) speed:\(speed))…")
-                        let movURL = try await ConversionEngine.convertToMOV(input: url, startTime: startTime, endTime: endTime, speed: speed, assetIdentifier: assetID)
+                        print("  [2/3] 转换为 MOV 容器 (start:\(editStartTime) end:\(editEndTime) speed:\(playbackSpeed))…")
+                        let movURL = try await ConversionEngine.convertToMOV(input: url, startTime: editStartTime, endTime: editEndTime, speed: playbackSpeed, assetIdentifier: assetID)
                         temporaryFiles.append(movURL)
 
                         // Step 3a: 输出到目录
-                        if let dir = outputDir {
+                        if let dir = outputDirectory {
                             let fm = FileManager.default
                             try fm.createDirectory(
                                 atPath: dir, withIntermediateDirectories: true, attributes: nil
@@ -268,14 +297,14 @@ class CLIHandler {
             // 汇总
             print("\n══════════════════════════════════")
             print("全部完成！成功 \(successCount) 个，失败 \(failCount) 个")
-            if shouldImport && successCount > 0 && !asGIF {
+            if shouldImport && successCount > 0 && !gifMode {
                 print("💡 打开「照片」App 即可查看，iCloud 同步后手机上也会出现")
             }
-            exitCode = failCount == 0 ? 0 : 1
+            exitCode.set(failCount == 0 ? 0 : 1)
         }
 
         sema.wait()
-        exit(exitCode)
+        exit(exitCode.get())
     }
 
     // MARK: - 帮助信息
