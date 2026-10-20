@@ -20,6 +20,7 @@ class CLIHandler {
         var asGIF = false
         var downloadOnly = false
         var shouldRemoveWatermark = AppSettings.shared.removeWatermark
+        var videoQuality: VideoQualityOption = AppSettings.shared.defaultVideoQuality
         var videoFiles: [String] = []
 
         // ── 解析参数 ──
@@ -30,6 +31,13 @@ class CLIHandler {
                 i += 1
                 guard i < rawArgs.count else { die("缺少输出目录参数") }
                 outputDir = rawArgs[i]
+            case "-q", "--quality", "--resolution":
+                i += 1
+                guard i < rawArgs.count else { die("缺少清晰度参数，可选: 1080p, 720p, 480p, 360p") }
+                guard let q = VideoQualityOption.match(rawArgs[i]) else {
+                    die("不支持的清晰度: \(rawArgs[i])，可选: 1080p, 720p, 480p, 360p")
+                }
+                videoQuality = q
             case "-d", "--download", "--download-only":
                 downloadOnly = true
             case "--delogo", "--remove-watermark":
@@ -155,7 +163,8 @@ class CLIHandler {
                             url: path,
                             targetDirectory: targetDirURL,
                             videoOutputDir: targetDirURL,
-                            shouldRemoveWatermark: shouldRemoveWatermark
+                            shouldRemoveWatermark: shouldRemoveWatermark,
+                            quality: videoQuality
                         ) { progress in
                             print("  \(progress)")
                         }
@@ -290,6 +299,7 @@ class CLIHandler {
 
         选项:
           -o, --output <目录>     输出 .jpg + .mov、.mp4 或 .gif 文件到指定目录
+          -q, --quality <清晰度>  指定网络视频下载清晰度 (1080p, 720p, 480p, 360p，默认 1080p，系统封顶 1080p)
           -d, --download          只下载网络视频到本地分类目录或指定目录，不转换为实况图
           --delogo                强制执行智能消除水印 (Mac 硬件加速 + 多层容错兜底)
           --no-delogo             跳过水印消除，完整保留原始流
@@ -309,6 +319,9 @@ class CLIHandler {
 
           cduyzh-media -d "https://www.bilibili.com/video/BV1HKaR6zEKh"
               → 解析并下载 B站 1080P60 视频到本地规整分类目录
+
+          cduyzh-media -d -q 720p "https://www.bilibili.com/video/BV1HKaR6zEKh"
+              → 指定以 720P 清晰度解析下载 B站视频
 
           cduyzh-media --gif video.mp4
               → 将视频转换为适合微信公众号的 GIF，输出在当前目录

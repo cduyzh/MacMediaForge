@@ -41,10 +41,42 @@ struct PreParsedVideoCardView: View {
                         if let dur = item.durationStr, !dur.isEmpty {
                             Text("· \(dur)")
                         }
-                        if !item.quality.isEmpty {
-                            Text("· \(item.quality)")
-                                .lineLimit(1)
+
+                        // 清晰度选择下拉徽标（支持多清晰度切换，最高 1080P）
+                        Menu {
+                            ForEach(item.availableQualities) { opt in
+                                Button {
+                                    item.selectedQuality = opt
+                                } label: {
+                                    HStack {
+                                        Text(opt.title)
+                                        if (item.selectedQuality ?? AppSettings.shared.defaultVideoQuality) == opt {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "tv")
+                                    .font(.system(size: 9))
+                                Text((item.selectedQuality ?? AppSettings.shared.defaultVideoQuality).shortLabel)
+                                    .font(.system(size: 10, weight: .semibold))
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 7))
+                            }
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1.5)
+                            .background(Color.accentColor.opacity(0.12))
+                            .foregroundStyle(Color.accentColor)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
                         }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .disabled(!isInteractionEnabled)
+                        .help("切换清晰度：当前为 \((item.selectedQuality ?? AppSettings.shared.defaultVideoQuality).title)（最高 1080P）")
+                        .accessibilityLabel("切换清晰度")
                     }
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)

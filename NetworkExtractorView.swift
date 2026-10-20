@@ -292,6 +292,30 @@ struct NetworkExtractorView: View {
 
             Divider()
 
+            HStack(spacing: 12) {
+                Label("清晰度", systemImage: "sparkles.tv")
+                    .font(.system(size: 13, weight: .medium))
+
+                Picker("", selection: $appSettings.defaultVideoQuality) {
+                    ForEach(VideoQualityOption.allCases) { opt in
+                        Text(opt.label).tag(opt)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 320)
+
+                Text("最高 1080P")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.12))
+                    .clipShape(Capsule())
+            }
+            .disabled(isDownloading)
+
+            Divider()
+
             HStack(alignment: .center, spacing: 12) {
                 Image(systemName: "folder")
                     .font(.system(size: 17))
@@ -761,6 +785,7 @@ struct NetworkExtractorView: View {
                         let livePhotoDir = CategorizedStorageManager.categoryDirectory(baseDir: baseDir, platform: platform, category: .livePhoto)
 
                         let preItem = await MainActor.run { NetworkVideoPreParser.shared.getItem(for: u) }
+                        let itemQuality = await MainActor.run { preItem?.selectedQuality ?? appSettings.defaultVideoQuality }
                         let hasPre = preItem?.status.isReady == true
                         await tracker.updateDescription(id: taskIdx, desc: "[\(platform.rawValue)] \(hasPre ? "正在下载…" : "正在连接解析…")")
                         await self.updateProgress(tracker: tracker, total: total)
@@ -777,6 +802,7 @@ struct NetworkExtractorView: View {
                                     markdownOutputDir: docDir,
                                     exportMarkdown: shouldExportMarkdown,
                                     shouldRemoveWatermark: shouldRemoveWatermark,
+                                    quality: itemQuality,
                                     preParsedInfo: preItem?.twitterPostInfo
                                 ) { line in
                                     Task {
@@ -803,7 +829,7 @@ struct NetworkExtractorView: View {
                                         ExtractedMediaItem(title: $0.lastPathComponent, url: $0, category: .video, platform: platform, dateString: dateStr)
                                     }
                                 }
-                                var derivativeFailures: [String] = []
+                                var derivativeFailures = result.qualityWarnings
                                 for videoURL in result.videoURLs {
                                     do {
                                         try await Self.generateDerivedMedia(
@@ -829,6 +855,7 @@ struct NetworkExtractorView: View {
                                     videoOutputDir: videoDir,
                                     markdownOutputDir: docDir,
                                     shouldRemoveWatermark: shouldRemoveWatermark,
+                                    quality: itemQuality,
                                     preParsedTwitter: preItem?.twitterPostInfo,
                                     preParsedXHS: preItem?.xhsParsedInfo,
                                     preParsedBilibili: preItem?.bilibiliParsedInfo

@@ -160,12 +160,100 @@ def calculate_resolution_score(url: str) -> int:
         return int(m.group(1)) * int(m.group(2))
     return 0
 
+MAX_PIXELS_1080P = 1920 * 1080
+
+def get_url_dimensions(url: str) -> Optional[Tuple[int, int]]:
+    m = re.search(r'/(\d+)x(\d+)/', url)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    return None
+
+def normalize_twitter_quality(q_str: Optional[str]) -> str:
+    """归一化清晰度为标准等级标签 (支持 1080p, 720p, 480p, 360p，最大 1080p)"""
+    if not q_str:
+        return "1080p"
+    clean = str(q_str).lower().strip()
+    if "1080" in clean or clean in ("max", "fhd", "origin", "原画", "超清"):
+        return "1080p"
+    elif "720" in clean or clean in ("hd", "高清"):
+        return "720p"
+    elif "480" in clean or clean in ("sd", "标清", "清晰"):
+        return "480p"
+    elif "360" in clean or clean in ("ld", "流畅"):
+        return "360p"
+    return "1080p"
+
+def classify_variant_tier(w: int, h: int) -> str:
+    """按分辨率短边划分为 1080p, 720p, 480p, 360p 等级 (上限 1080p)"""
+    min_dim = min(w, h)
+    if min_dim >= 900:
+        return "1080p"
+    elif min_dim >= 600:
+        return "720p"
+    elif min_dim >= 400:
+        return "480p"
+    else:
+        return "360p"
+
+def pick_best_variant_url(urls: List[str], target_quality: str = "1080p") -> Tuple[str, str, Dict[str, str], List[str]]:
+    """从推特视频多清晰度候选列表中挑选匹配清晰度，严格以 1080P 为上限"""
+    target_tier = normalize_twitter_quality(target_quality)
+
+    # 1. 解析所有候选 URL 分辨率，剔除超过 1080P (1920x1080) 的超规流
+    parsed_urls = []
+    for u in urls:
+        dims = get_url_dimensions(u)
+        if dims:
+            w, h = dims
+            # 严格限制 1080P 为上限
+            if w * h <= MAX_PIXELS_1080P and min(w, h) <= 1080:
+                parsed_urls.append((u, w, h, w * h, classify_variant_tier(w, h)))
+        else:
+            parsed_urls.append((u, 0, 0, 0, "1080p"))
+
+    if not parsed_urls:
+        for u in urls:
+            parsed_urls.append((u, 0, 0, 0, "1080p"))
+
+    # 映射各清晰度最高画质 URL
+    tier_map: Dict[str, str] = {}
+    for u, w, h, score, tier in sorted(parsed_urls, key=lambda x: x[3], reverse=True):
+        if tier not in tier_map:
+            tier_map[tier] = u
+
+    # 统计可用清晰度列表
+    available_qualities = [t for t in ["1080p", "720p", "480p", "360p"] if t in tier_map]
+    if not available_qualities:
+        available_qualities = ["1080p", "720p", "480p", "360p"]
+
+    # 根据 target_tier 挑选最佳匹配
+    selected_url = tier_map.get(target_tier)
+    if not selected_url:
+        priority_orders = {
+            "1080p": ["1080p", "720p", "480p", "360p"],
+            "720p": ["720p", "480p", "360p", "1080p"],
+            "480p": ["480p", "360p", "720p", "1080p"],
+            "360p": ["360p", "480p", "720p", "1080p"]
+        }
+        order = priority_orders.get(target_tier, ["1080p", "720p", "480p", "360p"])
+        for ord_tier in order:
+            if ord_tier in tier_map:
+                selected_url = tier_map[ord_tier]
+                break
+
+    if not selected_url:
+        selected_url = sorted(urls, key=calculate_resolution_score, reverse=True)[0]
+
+    dims = get_url_dimensions(selected_url)
+    quality_label = f"{dims[0]}x{dims[1]}" if dims else target_tier.upper()
+    return selected_url, quality_label, tier_map, available_qualities
+
 def clean_escaped_string(s: str) -> str:
     """清理 JS 字符串中的转义字符"""
     return s.replace(r'\"', '"').replace(r'\n', '\n').replace(r'\r', '').replace(r'\/', '/').replace(r'\\', '\\')
 
-def parse_twitter_post(url: str) -> Dict[str, Any]:
-    """深度解析推特主帖、回复合集及文章的所有发帖人视频与正文"""
+def parse_twitter_post(url: str, target_quality: str = "1080p") -> Dict[str, Any]:
+    """深度解析推特主帖、回复合集及文章的所有发帖人视频与正文（支持多清晰度选择，最大上限 1080P）"""
     tweet_id, username = extract_tweet_id_and_user(url)
     target_url = f"https://x.com/{username or 'i'}/status/{tweet_id}" if tweet_id else url
     
@@ -324,10 +412,7 @@ def parse_twitter_post(url: str) -> Dict[str, Any]:
     video_idx = 1
     
     for mid, urls in media_groups.items():
-        sorted_urls = sorted(urls, key=calculate_resolution_score, reverse=True)
-        best_url = sorted_urls[0]
-        res_m = re.search(r'/(\d+)x(\d+)/', best_url)
-        quality_label = f"{res_m.group(1)}x{res_m.group(2)}" if res_m else "原画"
+        best_url, quality_label, tier_map, avail_q = pick_best_variant_url(urls, target_quality)
         
         # 寻找对应的 expanded_url 或 tweet_id
         tweet_for_media = tweet_id
@@ -361,6 +446,9 @@ def parse_twitter_post(url: str) -> Dict[str, Any]:
             'url': best_url,
             'title': title,
             'quality': quality_label,
+            'selected_quality': normalize_twitter_quality(target_quality),
+            'variants': tier_map,
+            'available_qualities': avail_q,
             'tweet_id': tweet_for_media,
             'tweet_url': f"https://x.com/{author_username or 'i'}/status/{tweet_for_media}/video/1" if tweet_for_media else url,
             'tweet_text': tweet_text,
@@ -427,7 +515,15 @@ def main():
     url = sys.argv[2] if len(sys.argv) > 2 else ""
     
     if cmd == "info":
-        res = parse_twitter_post(url)
+        target_q = "1080p"
+        idx = 3
+        while idx < len(sys.argv):
+            if sys.argv[idx] in ("--quality", "-q") and idx + 1 < len(sys.argv):
+                target_q = sys.argv[idx + 1]
+                idx += 2
+            else:
+                idx += 1
+        res = parse_twitter_post(url, target_quality=target_q)
         print("\n=== JSON_RESULT_START ===")
         print(json.dumps(res, ensure_ascii=False, indent=2))
         print("=== JSON_RESULT_END ===")
@@ -440,6 +536,7 @@ def main():
         md_dir = output_dir
         export_md = True
         preparsed_path = None
+        target_q = "1080p"
         
         i = 3
         while i < len(sys.argv):
@@ -449,6 +546,9 @@ def main():
                 i += 2
             elif arg == "--md-dir" and i + 1 < len(sys.argv):
                 md_dir = sys.argv[i + 1]
+                i += 2
+            elif arg in ("--quality", "-q") and i + 1 < len(sys.argv):
+                target_q = sys.argv[i + 1]
                 i += 2
             elif arg == "--no-export-md":
                 export_md = False
@@ -474,12 +574,22 @@ def main():
                 log_progress("⚡️ 使用已预解析的视频信息，跳过重复解析步骤，直接开始极速下载！")
             except Exception as e:
                 log_progress(f"读取预解析缓存异常: {e}，回退至在线解析…")
-                post_data = parse_twitter_post(url)
+                post_data = parse_twitter_post(url, target_quality=target_q)
         else:
-            post_data = parse_twitter_post(url)
+            post_data = parse_twitter_post(url, target_quality=target_q)
             
         videos = post_data.get('videos', [])
         
+        # 若指定了目标清晰度且预解析数据中含有 variants，切换为对应清晰度链接
+        norm_target = normalize_twitter_quality(target_q)
+        for vid in videos:
+            variants = vid.get('variants', {})
+            if norm_target in variants:
+                vid['url'] = variants[norm_target]
+                dims = get_url_dimensions(vid['url'])
+                if dims:
+                    vid['quality'] = f"{dims[0]}x{dims[1]}"
+
         if not videos:
             log_progress("未在当前推文中识别到视频。")
             sys.exit(1)

@@ -9,6 +9,7 @@ public struct XHSPostInfo: Sendable {
     public let author: String
     public let coverUrl: String?
     public let videoUrl: String?
+    public let selectedQuality: VideoQualityOption
 }
 
 // MARK: - 网络视频通用下载器 (支持小红书、X/Twitter 及其他网络平台)
@@ -54,7 +55,7 @@ class NetworkVideoDownloader {
         PlatformCategory.detect(from: url) == .bilibili
     }
 
-    /// Twitter / X 专属全套发帖人视频与文章下载接口（支持多视频识别与 Markdown 导出，支持预解析直连）
+    /// Twitter / X 专属全套发帖人视频与文章下载接口（支持多视频识别与 Markdown 导出，支持预解析直连与清晰度选择）
     static func downloadTwitterAll(
         url: String,
         outputDir: URL? = nil,
@@ -62,6 +63,7 @@ class NetworkVideoDownloader {
         markdownOutputDir: URL? = nil,
         exportMarkdown: Bool = true,
         shouldRemoveWatermark: Bool = true,
+        quality: VideoQualityOption = .p1080,
         preParsedInfo: TwitterPostInfo? = nil,
         progressHandler: @escaping (String) -> Void
     ) async throws -> TwitterDownloadResult {
@@ -71,13 +73,26 @@ class NetworkVideoDownloader {
             videoOutputDir: videoOutputDir,
             markdownOutputDir: markdownOutputDir,
             exportMarkdown: exportMarkdown,
+            quality: quality,
             preParsedInfo: preParsedInfo,
             progressHandler: progressHandler
         )
         
+        // 视频画质与清晰度规整（上限严格限制为 1080P）
+        var qualityWarnings: [String] = []
+        var qualityFailures = Set<URL>()
+        for videoURL in result.videoURLs {
+            do {
+                try await enforceQualityConstraint(videoURL: videoURL, quality: quality, progressHandler: progressHandler)
+            } catch {
+                qualityFailures.insert(videoURL)
+                qualityWarnings.append("\(videoURL.lastPathComponent)：\(error.localizedDescription)")
+            }
+        }
+
         // 视频去水印处理
         if shouldRemoveWatermark && AppSettings.shared.removeWatermark {
-            for videoURL in result.videoURLs {
+            for videoURL in result.videoURLs where !qualityFailures.contains(videoURL) {
                 let delogoName = "delogo_" + videoURL.lastPathComponent
                 let delogoURL = videoURL.deletingLastPathComponent().appendingPathComponent(delogoName)
                 WorkExecutionManager.shared.registerActiveFile(delogoURL)
@@ -98,16 +113,24 @@ class NetworkVideoDownloader {
             }
         }
         
-        return result
+        return TwitterDownloadResult(
+            videoURLs: result.videoURLs,
+            markdownURL: result.markdownURL,
+            title: result.title,
+            isArticle: result.isArticle,
+            totalVideos: result.totalVideos,
+            qualityWarnings: qualityWarnings
+        )
     }
 
-    /// 统一入口：根据链接自动分流下载（支持传入已预解析数据直接极速下载）
+    /// 统一入口：根据链接自动分流下载（支持传入已预解析数据直接极速下载，支持多清晰度选择）
     static func downloadVideo(
         url: String,
         targetDirectory: URL? = nil,
         videoOutputDir: URL? = nil,
         markdownOutputDir: URL? = nil,
         shouldRemoveWatermark: Bool = true,
+        quality: VideoQualityOption = .p1080,
         preParsedTwitter: TwitterPostInfo? = nil,
         preParsedXHS: XHSPostInfo? = nil,
         preParsedBilibili: BilibiliVideoInfo? = nil,
@@ -124,14 +147,16 @@ class NetworkVideoDownloader {
             downloadedURL = try await downloadXiaohongshuVideo(
                 url: url,
                 targetDirectory: targetDirectory ?? videoOutputDir,
-                directVideoURL: preParsedXHS?.videoUrl,
+                directVideoURL: preParsedXHS?.selectedQuality == quality ? preParsedXHS?.videoUrl : nil,
                 directTitle: preParsedXHS?.title,
+                quality: quality,
                 progressHandler: progressHandler
             )
         } else if isBilibiliURL(url) {
             downloadedURL = try await BilibiliDownloader.downloadVideo(
                 url: url,
                 targetDirectory: targetDirectory ?? videoOutputDir,
+                quality: quality,
                 preParsedInfo: preParsedBilibili,
                 progressHandler: progressHandler
             )
@@ -143,11 +168,15 @@ class NetworkVideoDownloader {
                 markdownOutputDir: markdownOutputDir,
                 exportMarkdown: true,
                 shouldRemoveWatermark: shouldRemoveWatermark,
+                quality: quality,
                 preParsedInfo: preParsedTwitter,
                 progressHandler: progressHandler
             )
             guard let first = res.primaryVideoURL else {
                 throw DownloadError.downloadFailed(-1, "推特帖子下未找到发帖人视频")
+            }
+            if !res.qualityWarnings.isEmpty {
+                throw DownloadError.executionError(res.qualityWarnings.joined(separator: "；"))
             }
             return first
         } else {
@@ -157,14 +186,21 @@ class NetworkVideoDownloader {
                 videoOutputDir: videoOutputDir,
                 markdownOutputDir: markdownOutputDir,
                 exportMarkdown: false,
+                quality: quality,
                 preParsedInfo: preParsedTwitter,
                 progressHandler: progressHandler
             )
             guard let first = res.primaryVideoURL else {
                 throw DownloadError.downloadFailed(-1, "下载未提取到有效视频")
             }
+            if !res.qualityWarnings.isEmpty {
+                throw DownloadError.executionError(res.qualityWarnings.joined(separator: "；"))
+            }
             downloadedURL = first
         }
+
+        // 严格执行清晰度规格与 1080P 上限校验
+        downloadedURL = try await enforceQualityConstraint(videoURL: downloadedURL, quality: quality, progressHandler: progressHandler)
 
         // 视频去水印处理（支持小红书与哔哩哔哩等平台，集成硬件加速与多层容错兜底）
         let isXHS = isXiaohongshuURL(url)
@@ -208,8 +244,126 @@ class NetworkVideoDownloader {
         }
     }
 
+    /// 确保视频分辨率严格满足用户选择的清晰度规格，并且 1080P 为全系统最大画质上限
+    /// 如果视频原生已小于或等于目标清晰度，直接返回原文件（0 转码开销，保持无损）
+    /// 如果视频超出目标清晰度或超出 1080P 上限（如 4K/2K），利用系统硬件加速 (VideoToolbox) 平滑缩放至目标分辨率
+    @discardableResult
+    static func enforceQualityConstraint(
+        videoURL: URL,
+        quality: VideoQualityOption,
+        progressHandler: @escaping (String) -> Void
+    ) async throws -> URL {
+        guard FileManager.default.fileExists(atPath: videoURL.path) else { return videoURL }
+
+        // 获取视频真实分辨率
+        guard let (width, height) = await VideoWatermarkRemover.getVideoDimensions(url: videoURL) else {
+            throw DownloadError.executionError("无法读取下载视频的分辨率，无法确认是否符合所选清晰度。原视频已保留。")
+        }
+
+        let maxShort = quality.maxDimension
+        let maxLong = quality.maxLongDimension
+
+        let currentShort = min(width, height)
+        let currentLong = max(width, height)
+
+        // 若分辨率未超过所选规格（且未超过 1080p 上限），无需转码缩放
+        if currentShort <= maxShort && currentLong <= maxLong {
+            return videoURL
+        }
+
+        // 计算等比例缩放后的尺寸（保证宽高均为偶数，符合 H.264 规范）
+        let scaleFactor = min(Double(maxLong) / Double(currentLong), Double(maxShort) / Double(currentShort))
+        var targetW = Int(round(Double(width) * scaleFactor / 2.0)) * 2
+        var targetH = Int(round(Double(height) * scaleFactor / 2.0)) * 2
+        targetW = max(2, targetW)
+        targetH = max(2, targetH)
+
+        progressHandler("📐 调整视频清晰度至 \(quality.shortLabel) (\(targetW)x\(targetH))…")
+
+        guard let ffmpeg = VideoWatermarkRemover.locateTool(name: "ffmpeg") else {
+            throw DownloadError.executionError("调整到所选清晰度需要 FFmpeg。原视频已保留；安装 FFmpeg 后可重试。")
+        }
+
+        let tempURL = videoURL.deletingLastPathComponent().appendingPathComponent("tmp_scaled_\(UUID().uuidString).mp4")
+        WorkExecutionManager.shared.registerActiveFile(tempURL)
+        defer {
+            WorkExecutionManager.shared.unregisterActiveFile(tempURL)
+            if FileManager.default.fileExists(atPath: tempURL.path) {
+                try? FileManager.default.removeItem(at: tempURL)
+            }
+        }
+
+        let bitrate = VideoWatermarkRemover.estimateBitrate(width: targetW, height: targetH)
+
+        // 尝试 Tier 1: VideoToolbox
+        let tier1Args = [
+            "-nostdin", "-y",
+            "-i", videoURL.path,
+            "-vf", "scale=\(targetW):\(targetH)",
+            "-c:v", "h264_videotoolbox",
+            "-b:v", "\(bitrate)k",
+            "-c:a", "copy",
+            "-movflags", "+faststart",
+            tempURL.path
+        ]
+
+        var success = false
+        let p1 = Process()
+        p1.executableURL = URL(fileURLWithPath: ffmpeg)
+        p1.arguments = tier1Args
+        let token1 = WorkExecutionManager.shared.registerProcess(p1)
+        do {
+            try p1.run()
+            p1.waitUntilExit()
+            WorkExecutionManager.shared.unregisterProcess(id: token1)
+            if p1.terminationStatus == 0 && VideoWatermarkRemover.validateOutputFile(url: tempURL, minExpectedSize: 20000) {
+                success = true
+            }
+        } catch {
+            WorkExecutionManager.shared.unregisterProcess(id: token1)
+        }
+
+        // 兜底 Tier 2: CPU libx264
+        if !success {
+            let tier2Args = [
+                "-nostdin", "-y",
+                "-i", videoURL.path,
+                "-vf", "scale=\(targetW):\(targetH)",
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "22",
+                "-c:a", "copy",
+                "-movflags", "+faststart",
+                tempURL.path
+            ]
+            let p2 = Process()
+            p2.executableURL = URL(fileURLWithPath: ffmpeg)
+            p2.arguments = tier2Args
+            let token2 = WorkExecutionManager.shared.registerProcess(p2)
+            do {
+                try p2.run()
+                p2.waitUntilExit()
+                WorkExecutionManager.shared.unregisterProcess(id: token2)
+                if p2.terminationStatus == 0 && VideoWatermarkRemover.validateOutputFile(url: tempURL, minExpectedSize: 20000) {
+                    success = true
+                }
+            } catch {
+                WorkExecutionManager.shared.unregisterProcess(id: token2)
+            }
+        }
+
+        if success {
+            try replaceProcessedVideo(tempURL, original: videoURL)
+            progressHandler("✅ 已成功调整画质为 \(quality.shortLabel) (\(targetW)x\(targetH))")
+        } else {
+            throw DownloadError.executionError("未能将视频调整到 \(quality.shortLabel)。原视频已保留。")
+        }
+
+        return videoURL
+    }
+
     /// 解析小红书视频元数据（标题、作者、封面与直链）
-    static func fetchXHSInfo(url: String) async throws -> XHSPostInfo {
+    static func fetchXHSInfo(url: String, quality: VideoQualityOption = .p1080) async throws -> XHSPostInfo {
         guard let scriptPath = locateXHSDownloaderScript() else {
             throw DownloadError.scriptNotFound
         }
@@ -222,6 +376,7 @@ class NetworkVideoDownloader {
             "info",
             url
         ]
+        args.append(contentsOf: ["--quality", quality.rawValue])
 
         let cookie = XHSAuthManager.shared.cookie.trimmingCharacters(in: .whitespacesAndNewlines)
         if !cookie.isEmpty {
@@ -258,6 +413,10 @@ class NetworkVideoDownloader {
 
                 process.terminationHandler = { proc in
                     fileHandle.readabilityHandler = nil
+                    let remainder = fileHandle.readDataToEndOfFile()
+                    if let str = String(data: remainder, encoding: .utf8), !str.isEmpty {
+                        collector.fullOutput += str
+                    }
                     WorkExecutionManager.shared.unregisterProcess(id: procToken)
                     let output = collector.fullOutput
                     if let startRange = output.range(of: "=== JSON_RESULT_START ==="),
@@ -270,13 +429,15 @@ class NetworkVideoDownloader {
                             let coverUrl = dict["cover_url"] as? String
                             let videoUrl = dict["video_url"] as? String
                             let noteId = dict["note_id"] as? String
+                            let selectedQuality = VideoQualityOption.from(string: dict["selected_quality"] as? String ?? quality.rawValue)
                             let info = XHSPostInfo(
                                 url: url,
                                 noteId: noteId,
                                 title: title,
                                 author: author,
                                 coverUrl: coverUrl,
-                                videoUrl: videoUrl
+                                videoUrl: videoUrl,
+                                selectedQuality: selectedQuality
                             )
                             continuation.resume(returning: info)
                             return
@@ -291,12 +452,13 @@ class NetworkVideoDownloader {
         }
     }
 
-    /// 小红书专属下载流（支持预解析直链极速下载）
+    /// 小红书专属下载流（支持预解析直链极速下载，支持清晰度选择与 1080P 上限控制）
     static func downloadXiaohongshuVideo(
         url: String,
         targetDirectory: URL? = nil,
         directVideoURL: String? = nil,
         directTitle: String? = nil,
+        quality: VideoQualityOption = .p1080,
         progressHandler: @escaping (String) -> Void
     ) async throws -> URL {
         guard let scriptPath = locateXHSDownloaderScript() else {
@@ -345,6 +507,8 @@ class NetworkVideoDownloader {
             args.append("--title")
             args.append(dTitle)
         }
+        args.append("--quality")
+        args.append(quality.rawValue)
 
         let cookie = XHSAuthManager.shared.cookie.trimmingCharacters(in: .whitespacesAndNewlines)
         if !cookie.isEmpty {
@@ -366,7 +530,7 @@ class NetworkVideoDownloader {
 
         let procToken = WorkExecutionManager.shared.registerProcess(process)
 
-        return try await withCheckedThrowingContinuation { continuation in
+        let downloadedURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
             do {
                 try process.run()
 
@@ -406,6 +570,8 @@ class NetworkVideoDownloader {
                 continuation.resume(throwing: DownloadError.executionError(error.localizedDescription))
             }
         }
+
+        return try await enforceQualityConstraint(videoURL: downloadedURL, quality: quality, progressHandler: progressHandler)
     }
 
     /// 定位 xhs_downloader.py 路径
@@ -419,6 +585,16 @@ class NetworkVideoDownloader {
         let resURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/xhs_downloader.py")
         if FileManager.default.fileExists(atPath: resURL.path) {
             return resURL.path
+        }
+
+        let resolvedResURL = Bundle.main.bundleURL.resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/xhs_downloader.py")
+        if FileManager.default.fileExists(atPath: resolvedResURL.path) {
+            return resolvedResURL.path
+        }
+
+        let standardAppPath = "/Applications/cduyzhMediaForge.app/Contents/Resources/xhs_downloader.py"
+        if FileManager.default.fileExists(atPath: standardAppPath) {
+            return standardAppPath
         }
 
         // 2. 可执行程序同级或上级目录

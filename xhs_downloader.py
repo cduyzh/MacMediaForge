@@ -104,6 +104,21 @@ def extract_token_from_url(url: str) -> Optional[str]:
     m = re.search(r'xsec_token=([^&"\'\s]+)', url)
     return urllib.parse.unquote(m.group(1)) if m else None
 
+def normalize_xhs_quality(value: str) -> str:
+    clean = str(value or "1080p").strip().lower()
+    if "720" in clean or clean in ("medium", "hd", "高清"):
+        return "720p"
+    if "480" in clean or clean in ("low", "sd", "标清"):
+        return "480p"
+    if "360" in clean or clean in ("ld", "流畅"):
+        return "360p"
+    return "1080p"
+
+def xhs_quality_label(value: str) -> str:
+    return {"1080p": "高清 1080P", "720p": "高清 720P", "480p": "清晰 480P", "360p": "流畅 360P"}[
+        normalize_xhs_quality(value)
+    ]
+
 def build_authed_url(url: str, custom_token: Optional[str] = None) -> str:
     """若 URL 缺少 xsec_token，尝试自动将传入的 custom_token 补充进 URL"""
     if "xsec_token=" in url or not custom_token:
@@ -316,12 +331,13 @@ def parse_via_kukutool(target_url: str) -> Optional[Tuple[str, str]]:
     return None
 
 # MARK: - 开源启发式直链提取通道（通道二：基于 wanyi-watermark / XHS-Downloader）
-def parse_via_open_heuristic(target_url: str, cookie: str = "") -> Optional[Tuple[str, str]]:
+def parse_via_open_heuristic(target_url: str, cookie: str = "", quality: str = "medium") -> Optional[Tuple[str, str]]:
     """
     通过开源启发式规则直接提取小红书页面中的无水印视频直链
     支持从 xhslink.com 追踪重定向或带 token 的直链中提取，并自动注入配置的 Cookie
+    支持指定清晰度档位：'medium' (默认 720P，节省 75%~85% 资源), 'high' (1080P/原画), 'low' (480P/360P)
     """
-    log_progress("正在尝试通过开源启发式引擎提取小红书视频媒体源…")
+    log_progress(f"正在尝试通过开源启发式引擎提取小红书视频媒体源 (清晰度档位: {quality})…")
     resolved_url = resolve_redirect(target_url)
 
     # 规范化 URL：若为 discovery/item 转换为 explore 以获取完整 SSR state
@@ -340,14 +356,52 @@ def parse_via_open_heuristic(target_url: str, cookie: str = "") -> Optional[Tupl
         if explore_url not in urls_to_try:
             urls_to_try.append(explore_url)
 
-    def score_video_url(u: str, source: str) -> int:
+    def score_video_url(u: str, source: str, meta: Optional[Dict[str, Any]] = None) -> int:
         score = 0
-        if source == "origin_video": score += 110
-        elif source == "video_tag": score += 100
-        elif source == "og_video": score += 90
-        elif source == "master_stream": score += 80
-        elif source == "backup_stream": score += 60
-        elif source == "regex_xhscdn": score += 50
+        w = meta.get("width", 0) if meta else 0
+        h = meta.get("height", 0) if meta else 0
+        desc = str(meta.get("streamDesc", "")) if meta else ""
+        min_dim = min(w, h) if w and h else 0
+
+        # 根据指定清晰度档位评分 (默认推荐 medium / 720p，节省 75%~85% 资源)
+        if quality in ("medium", "720p"):
+            if min_dim == 720 or "720" in desc or "259" in desc or "309" in desc:
+                score += 160
+            elif source == "master_stream":
+                score += 100
+            elif source == "backup_stream":
+                score += 85
+            elif source == "video_tag":
+                score += 70
+            elif source == "og_video":
+                score += 60
+            elif source == "origin_video":
+                score += 40  # 原片体积过大，作为兜底
+            elif source == "regex_xhscdn":
+                score += 30
+        elif quality in ("low", "480p", "360p"):
+            if min_dim in (360, 480):
+                score += 160
+            elif source == "master_stream":
+                score += 90
+            elif source == "origin_video":
+                score += 30
+        else: # high / 1080p
+            if source == "origin_video":
+                score += 160
+            elif min_dim == 1080 or "1080" in desc:
+                score += 140
+            elif source == "master_stream":
+                score += 100
+            elif source == "video_tag":
+                score += 90
+            elif source == "og_video":
+                score += 80
+            elif source == "backup_stream":
+                score += 60
+            elif source == "regex_xhscdn":
+                score += 50
+
         if u.startswith("https://"): score += 10
         if re.search(r'(?:wm|watermark)', u, re.IGNORECASE):
             score -= 50
@@ -378,7 +432,7 @@ def parse_via_open_heuristic(target_url: str, cookie: str = "") -> Optional[Tupl
                     log_progress("提示: 小红书返回登录拦截页面，需要配置 Cookie 或提供有效 xsec_token")
                     continue
 
-                candidates: List[Tuple[str, str]] = []
+                candidates: List[Tuple[str, str, Optional[Dict[str, Any]]]] = []
                 extracted_title = "Xiaohongshu_Video"
 
                 # 1. 尝试从 __INITIAL_STATE__ 提取
@@ -386,64 +440,71 @@ def parse_via_open_heuristic(target_url: str, cookie: str = "") -> Optional[Tupl
                 if not m_state:
                     m_state = re.search(r'<script>\s*window\.__INITIAL_STATE__\s*=\s*(.+?)</script>', html)
                 if m_state:
+                    state_data = None
                     try:
                         clean_json = re.sub(r':\s*undefined\s*([,}])', r': null\1', m_state.group(1).rstrip(';'))
                         state_data = json.loads(clean_json)
-                        # A. 检查 PC Web 端的 note.noteDetailMap
-                        note_map = state_data.get("note", {}).get("noteDetailMap", {})
-                        notes_to_check = [d.get("note", {}) for d in note_map.values() if isinstance(d, dict)]
-                        
-                        # B. 检查移动端 H5 的 noteData.data.noteData
-                        mobile_note = state_data.get("noteData", {}).get("data", {}).get("noteData")
-                        if mobile_note and isinstance(mobile_note, dict):
-                            notes_to_check.append(mobile_note)
+                    except (json.JSONDecodeError, TypeError):
+                        # 页面脚本来自网络，只接受 JSON 语法；不要把网页内容交给 JS 引擎执行。
+                        state_data = None
 
-                        for note in notes_to_check:
-                            if note:
-                                extracted_title = note.get("title") or note.get("desc") or extracted_title
-                                video_obj = note.get("video", {})
-                                media = video_obj.get("media", {})
-                                stream = media.get("stream", {})
-                                for stream_type, items in stream.items():
-                                    if isinstance(items, list):
-                                        for item in items:
-                                            if isinstance(item, dict):
-                                                if item.get("masterUrl"):
-                                                    candidates.append((item["masterUrl"], "master_stream"))
-                                                for b_url in item.get("backupUrls", []):
-                                                    candidates.append((b_url, "backup_stream"))
-                                # 检查 originVideoKey
-                                origin_key = video_obj.get("consumer", {}).get("originVideoKey")
-                                if origin_key:
-                                    candidates.append((f"https://sns-video-bd.xhscdn.com/{origin_key}", "origin_video"))
-                    except Exception as e:
-                        pass
+                    if state_data:
+                        try:
+                            # A. 检查 PC Web 端的 note.noteDetailMap
+                            note_map = state_data.get("note", {}).get("noteDetailMap", {})
+                            notes_to_check = [d.get("note", {}) for d in note_map.values() if isinstance(d, dict)]
+
+                            # B. 检查移动端 H5 的 noteData.data.noteData
+                            mobile_note = state_data.get("noteData", {}).get("data", {}).get("noteData")
+                            if mobile_note and isinstance(mobile_note, dict):
+                                notes_to_check.append(mobile_note)
+
+                            for note in notes_to_check:
+                                if note:
+                                    extracted_title = note.get("title") or note.get("desc") or extracted_title
+                                    video_obj = note.get("video", {})
+                                    media = video_obj.get("media", {})
+                                    stream = media.get("stream", {})
+                                    for stream_type, items in stream.items():
+                                        if isinstance(items, list):
+                                            for item in items:
+                                                if isinstance(item, dict):
+                                                    if item.get("masterUrl"):
+                                                        candidates.append((item["masterUrl"], "master_stream", item))
+                                                    for b_url in item.get("backupUrls", []):
+                                                        candidates.append((b_url, "backup_stream", item))
+                                    # 检查 originVideoKey
+                                    origin_key = video_obj.get("consumer", {}).get("originVideoKey")
+                                    if origin_key:
+                                        candidates.append((f"https://sns-video-bd.xhscdn.com/{origin_key}", "origin_video", None))
+                        except Exception:
+                            pass
 
                 # 2. 提取 <video src="...">
                 for v_src in re.findall(r'<video[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE):
-                    candidates.append((v_src, "video_tag"))
+                    candidates.append((v_src, "video_tag", None))
 
                 # 3. 提取 <meta property="og:video" content="...">
                 for og_v in re.findall(r'<meta[^>]+(?:name|property)=["\']og:video["\'][^>]+content=["\']([^"\']+)["\']', html, re.IGNORECASE):
-                    candidates.append((og_v, "og_video"))
+                    candidates.append((og_v, "og_video", None))
 
                 # 4. 正则捕获 xhscdn.com 上的 mp4 视频流
                 for raw_mp4 in re.findall(r'https?://[^\s"\'<>]+\.xhscdn\.com/[^\s"\'<>]+\.mp4[^\s"\'<>]*', html):
-                    candidates.append((raw_mp4, "regex_xhscdn"))
+                    candidates.append((raw_mp4, "regex_xhscdn", None))
 
                 if candidates:
                     cleaned = []
-                    for c_url, c_src in candidates:
+                    for c_url, c_src, c_meta in candidates:
                         norm = c_url.replace(r'\/', '/').replace('&amp;', '&').strip()
                         if norm.startswith('http://'):
                             norm = norm.replace('http://', 'https://', 1)
                         if norm.startswith('https://') and ('.mp4' in norm or 'sns-video' in norm):
-                            cleaned.append((norm, c_src))
+                            cleaned.append((norm, c_src, c_meta))
 
                     if cleaned:
-                        cleaned.sort(key=lambda x: (score_video_url(x[0], x[1]), len(x[0])), reverse=True)
+                        cleaned.sort(key=lambda x: (score_video_url(x[0], x[1], x[2]), len(x[0])), reverse=True)
                         best_url = cleaned[0][0]
-                        log_progress(f"开源启发式引擎成功提取视频直链: 《{extracted_title}》")
+                        log_progress(f"开源启发式引擎成功提取视频直链: 《{extracted_title}》 (清晰度: {quality})")
                         return (best_url, extracted_title)
 
             except Exception:
@@ -555,8 +616,8 @@ def download_file(video_url: str, output_path: str, title: str = ""):
     log_progress("✅ 视频下载完成！")
 
 # MARK: - 主流程
-def download_xiaohongshu_video(input_text: str, output_path: str, cookie: str = "", custom_token: str = "") -> bool:
-    """主调度函数：支持自定义鉴权与四层容错架构"""
+def download_xiaohongshu_video(input_text: str, output_path: str, cookie: str = "", custom_token: str = "", quality: str = "medium") -> bool:
+    """主调度函数：支持自定义鉴权与四层容错架构，支持多清晰度档位 (medium/high/low)"""
     url = extract_url_from_text(input_text)
     if not url:
         log_progress("错误: 输入的内容中未找到有效链接")
@@ -567,16 +628,22 @@ def download_xiaohongshu_video(input_text: str, output_path: str, cookie: str = 
     
     # 2. 智能补全 token（若 URL 未带 token 且提供了 token）
     final_input_url = build_authed_url(url, extracted_token)
-    log_progress(f"解析到目标链接: {final_input_url}")
+    log_progress(f"解析到目标链接: {final_input_url} (指定清晰度: {quality})")
     target_url = resolve_redirect(final_input_url)
 
-    # 3. 依次尝试通道
-    # 尝试通道一：KuKuTool
-    result = parse_via_kukutool(target_url)
+    result = None
 
-    # 尝试通道二：开源启发式直链提取（注入 Cookie 与 Token）
-    if not result:
-        result = parse_via_open_heuristic(target_url, cookie=cookie)
+    # 若指定了中间档位 (medium/720p) 或低档位，优先通过开源启发式精准提取指定分辨率码流
+    if quality in ("medium", "720p", "low", "480p", "360p"):
+        result = parse_via_open_heuristic(target_url, cookie=cookie, quality=quality)
+        if not result:
+            result = parse_via_kukutool(target_url)
+    else:
+        # 尝试通道一：KuKuTool
+        result = parse_via_kukutool(target_url)
+        # 尝试通道二：开源启发式直链提取（注入 Cookie 与 Token）
+        if not result:
+            result = parse_via_open_heuristic(target_url, cookie=cookie, quality=quality)
 
     # 尝试通道三：社区高可用去水印微服务聚合
     if not result:
@@ -594,10 +661,11 @@ def download_xiaohongshu_video(input_text: str, output_path: str, cookie: str = 
     log_progress("正在尝试通过 yt-dlp 进行最终提取…")
     import subprocess
     try:
+        format_selector = "bestvideo[height<=720]+bestaudio/best[height<=720]/best" if quality in ("medium", "720p") else "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
         cmd = [
             "python3", "-m", "yt_dlp",
             "-o", output_path,
-            "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "-f", format_selector,
             "--merge-output-format", "mp4",
             target_url
         ]
@@ -618,7 +686,7 @@ def download_xiaohongshu_video(input_text: str, output_path: str, cookie: str = 
     )
     return False
 
-def fetch_xiaohongshu_info(input_text: str, cookie: str = "", custom_token: str = "") -> Optional[Dict[str, Any]]:
+def fetch_xiaohongshu_info(input_text: str, cookie: str = "", custom_token: str = "", quality: str = "1080p") -> Optional[Dict[str, Any]]:
     """提取小红书视频元数据（标题、作者、封面第一帧与直链）"""
     url = extract_url_from_text(input_text)
     if not url:
@@ -628,6 +696,8 @@ def fetch_xiaohongshu_info(input_text: str, cookie: str = "", custom_token: str 
     final_input_url = build_authed_url(url, extracted_token)
     target_url = resolve_redirect(final_input_url)
     note_id = extract_note_id(target_url) or ""
+    selected_quality = normalize_xhs_quality(quality)
+    quality_label = xhs_quality_label(selected_quality)
 
     # 通道一：KuKuTool
     k_res = parse_via_kukutool(target_url)
@@ -640,11 +710,14 @@ def fetch_xiaohongshu_info(input_text: str, cookie: str = "", custom_token: str 
             "title": title,
             "author": "小红书创作者",
             "cover_url": None,
-            "video_url": v_url
+            "video_url": v_url,
+            "quality": quality_label,
+            "selected_quality": selected_quality,
+            "available_qualities": ["1080p", "720p", "480p", "360p"]
         }
 
     # 通道二：开源启发式
-    h_res = parse_via_open_heuristic(target_url, cookie=cookie)
+    h_res = parse_via_open_heuristic(target_url, cookie=cookie, quality=selected_quality)
     if h_res:
         v_url, title = h_res
         return {
@@ -654,7 +727,10 @@ def fetch_xiaohongshu_info(input_text: str, cookie: str = "", custom_token: str 
             "title": title,
             "author": "小红书创作者",
             "cover_url": None,
-            "video_url": v_url
+            "video_url": v_url,
+            "quality": quality_label,
+            "selected_quality": selected_quality,
+            "available_qualities": ["1080p", "720p", "480p", "360p"]
         }
 
     # 通道三：社区公共接口
@@ -668,13 +744,17 @@ def fetch_xiaohongshu_info(input_text: str, cookie: str = "", custom_token: str 
             "title": title,
             "author": "小红书创作者",
             "cover_url": None,
-            "video_url": v_url
+            "video_url": v_url,
+            "quality": quality_label,
+            "selected_quality": selected_quality,
+            "available_qualities": ["1080p", "720p", "480p", "360p"]
         }
 
     # 通道四：yt-dlp dump json
     try:
         import subprocess
-        cmd = ["python3", "-m", "yt_dlp", "--dump-json", "--no-warnings", target_url]
+        format_selector = f"bestvideo[height<={int(selected_quality[:-1])}]+bestaudio/best[height<={int(selected_quality[:-1])}]/best"
+        cmd = ["python3", "-m", "yt_dlp", "--dump-json", "--no-warnings", "-f", format_selector, target_url]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
         if proc.returncode == 0 and proc.stdout:
             info = json.loads(proc.stdout)
@@ -685,7 +765,10 @@ def fetch_xiaohongshu_info(input_text: str, cookie: str = "", custom_token: str 
                 "title": info.get("title") or "小红书视频",
                 "author": info.get("uploader") or info.get("creator") or "小红书创作者",
                 "cover_url": info.get("thumbnail"),
-                "video_url": info.get("url")
+                "video_url": info.get("url"),
+                "quality": quality_label,
+                "selected_quality": selected_quality,
+                "available_qualities": ["1080p", "720p", "480p", "360p"]
             }
     except Exception:
         pass
@@ -707,6 +790,7 @@ if __name__ == "__main__":
         url_arg = sys.argv[2]
         cookie_arg = ""
         token_arg = ""
+        quality_arg = "1080p"
         idx = 3
         while idx < len(sys.argv):
             arg = sys.argv[idx]
@@ -715,6 +799,9 @@ if __name__ == "__main__":
                 idx += 2
             elif arg == "--token" and idx + 1 < len(sys.argv):
                 token_arg = sys.argv[idx + 1]
+                idx += 2
+            elif arg in ("--quality", "-q") and idx + 1 < len(sys.argv):
+                quality_arg = normalize_xhs_quality(sys.argv[idx + 1])
                 idx += 2
             else:
                 idx += 1
@@ -726,7 +813,7 @@ if __name__ == "__main__":
             if not token_arg and saved_cfg.get("xsec_token"):
                 token_arg = saved_cfg["xsec_token"]
 
-        info = fetch_xiaohongshu_info(url_arg, cookie=cookie_arg, custom_token=token_arg)
+        info = fetch_xiaohongshu_info(url_arg, cookie=cookie_arg, custom_token=token_arg, quality=quality_arg)
         print("\n=== JSON_RESULT_START ===")
         if info:
             print(json.dumps(info, ensure_ascii=False, indent=2))
@@ -748,6 +835,7 @@ if __name__ == "__main__":
     token_arg = ""
     direct_url_arg = ""
     title_arg = ""
+    quality_arg = "medium"
 
     idx = 3
     while idx < len(sys.argv):
@@ -763,6 +851,9 @@ if __name__ == "__main__":
             idx += 2
         elif arg == "--title" and idx + 1 < len(sys.argv):
             title_arg = sys.argv[idx + 1]
+            idx += 2
+        elif arg in ("--quality", "-q") and idx + 1 < len(sys.argv):
+            quality_arg = sys.argv[idx + 1]
             idx += 2
         else:
             idx += 1
@@ -784,5 +875,5 @@ if __name__ == "__main__":
         if not token_arg and saved_cfg.get("xsec_token"):
             token_arg = saved_cfg["xsec_token"]
 
-    success = download_xiaohongshu_video(url_arg, out_arg, cookie=cookie_arg, custom_token=token_arg)
+    success = download_xiaohongshu_video(url_arg, out_arg, cookie=cookie_arg, custom_token=token_arg, quality=quality_arg)
     sys.exit(0 if success else 1)

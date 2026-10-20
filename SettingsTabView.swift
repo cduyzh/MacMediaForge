@@ -124,6 +124,7 @@ public struct SettingsTabView: View {
                 classifiedStorageSection
                 concurrencyPerformanceSection
                 extractorOptionsDynamicSection
+                videoQualitySection
                 duplicatePolicySection
                 watermarkSection
                 livePhotoPreferencesSection
@@ -258,6 +259,31 @@ public struct SettingsTabView: View {
             preferenceToggle("生成 GIF", detail: "额外生成适合微信公众号使用的 GIF 动图。", isOn: $settings.generateGIF)
             Divider()
             preferenceToggle("导出推特 Markdown 摘要", detail: "保存帖子正文、作者、互动数据与视频列表。", isOn: $settings.exportMarkdown)
+        }
+        .padding(20)
+        .forgeSurface()
+    }
+
+    private var videoQualitySection: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            settingsSectionHeading(
+                title: "下载清晰度偏好",
+                subtitle: "默认提取与下载画质，最高限制为 1080P。",
+                systemImage: "tv"
+            )
+
+            Picker("下载清晰度", selection: $settings.defaultVideoQuality) {
+                ForEach(VideoQualityOption.allCases) { q in
+                    Text(q.title).tag(q)
+                }
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+
+            Text("支持 1080P、720P、480P、360P 多档画质选择。1080P 为全系统最大画质封顶；若原片包含 4K/8K 规格，将自动封顶至 1080P。若所选清晰度不存在，将自适应匹配最接近的清晰度。可在网络提取页卡片中随时微调单条视频清晰度。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(20)
         .forgeSurface()

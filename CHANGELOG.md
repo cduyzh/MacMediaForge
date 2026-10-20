@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-10-20
+
+### Added
+- 增加 1080P、720P、480P、360P 四档下载清晰度偏好，可在设置、单条预解析卡片和 CLI 中选择。
+- 哔哩哔哩解析按所选档位请求 DASH/MP4 清晰度；X/Twitter 解析变体并选取对应码流；小红书解析优先匹配所选清晰度。
+- 对超过所选规格的视频按比例缩放；系统上限为 1080P。未安装 FFmpeg 或缩放失败时显示失败原因，并保留源视频。
+
+### Fixed
+- 网络脚本不再把来自网页响应的 JavaScript 传给 Node 执行；脚本状态只按 JSON 安全解析。
+- 保留 Twitter 多视频清晰度调整失败警告；失败视频跳过去水印，避免将未符合所选清晰度的文件当作成功成果。
+- 哔哩哔哩单段 MP4 回退沿用用户所选清晰度，而不是固定请求 720P。
+
 ## [1.9.0] - 2026-10-18
 
 ### 界面与交互

@@ -99,6 +99,8 @@ public struct BilibiliVideoInfo: Sendable {
     public let coverUrl: String?
     public let duration: Int
     public let quality: String
+    public let selectedQuality: String
+    public let availableQualities: [String]
     public let isDash: Bool
     public let videoUrl: String?
     public let audioUrl: String?
@@ -114,6 +116,8 @@ public struct BilibiliVideoInfo: Sendable {
         coverUrl: String?,
         duration: Int,
         quality: String,
+        selectedQuality: String = "1080p",
+        availableQualities: [String] = ["1080p", "720p", "480p", "360p"],
         isDash: Bool,
         videoUrl: String?,
         audioUrl: String?,
@@ -128,6 +132,8 @@ public struct BilibiliVideoInfo: Sendable {
         self.coverUrl = coverUrl
         self.duration = duration
         self.quality = quality
+        self.selectedQuality = selectedQuality
+        self.availableQualities = availableQualities
         self.isDash = isDash
         self.videoUrl = videoUrl
         self.audioUrl = audioUrl
@@ -144,6 +150,8 @@ public struct BilibiliVideoInfo: Sendable {
             "author": author,
             "duration": duration,
             "quality": quality,
+            "selected_quality": selectedQuality,
+            "available_qualities": availableQualities,
             "is_dash": isDash,
             "original_url": originalUrl
         ]
@@ -220,14 +228,14 @@ public class BilibiliDownloader {
     }
 
     /// 预解析 B站 视频元数据（标题、UP主、封面首帧及音视频轨）
-    public static func fetchVideoInfo(url: String) async throws -> BilibiliVideoInfo {
+    public static func fetchVideoInfo(url: String, quality: VideoQualityOption = .p1080) async throws -> BilibiliVideoInfo {
         guard let scriptPath = locateBilibiliDownloaderScript() else {
             throw DownloadError.scriptNotFound
         }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["python3", "-u", scriptPath, "info", url]
+        process.arguments = ["python3", "-u", scriptPath, "info", url, "--quality", quality.rawValue]
 
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -254,6 +262,10 @@ public class BilibiliDownloader {
 
                 process.terminationHandler = { proc in
                     fileHandle.readabilityHandler = nil
+                    let remaining = fileHandle.readDataToEndOfFile()
+                    if let remStr = String(data: remaining, encoding: .utf8) {
+                        collector.fullOutput += remStr
+                    }
                     WorkExecutionManager.shared.unregisterProcess(id: procToken)
 
                     let output = collector.fullOutput
@@ -271,6 +283,8 @@ public class BilibiliDownloader {
                                 let coverUrl = dict["cover_url"] as? String
                                 let duration = dict["duration"] as? Int ?? 0
                                 let quality = dict["quality"] as? String ?? "高清 1080P"
+                                let selQ = dict["selected_quality"] as? String ?? quality
+                                let availQ = dict["available_qualities"] as? [String] ?? ["1080p", "720p", "480p", "360p"]
                                 let isDash = dict["is_dash"] as? Bool ?? false
                                 let videoUrl = dict["video_url"] as? String
                                 let audioUrl = dict["audio_url"] as? String
@@ -346,6 +360,8 @@ public class BilibiliDownloader {
                                     coverUrl: coverUrl,
                                     duration: duration,
                                     quality: quality,
+                                    selectedQuality: selQ,
+                                    availableQualities: availQ,
                                     isDash: isDash,
                                     videoUrl: videoUrl,
                                     audioUrl: audioUrl,
@@ -373,6 +389,7 @@ public class BilibiliDownloader {
     public static func downloadVideo(
         url: String,
         targetDirectory: URL? = nil,
+        quality: VideoQualityOption = .p1080,
         preParsedInfo: BilibiliVideoInfo? = nil,
         progressHandler: @escaping (String) -> Void
     ) async throws -> URL {
@@ -386,7 +403,7 @@ public class BilibiliDownloader {
         var activeInfo = preParsedInfo
         if activeInfo == nil {
             progressHandler("正在预解析视频标题与UP主信息…")
-            activeInfo = try? await fetchVideoInfo(url: url)
+            activeInfo = try? await fetchVideoInfo(url: url, quality: quality)
         }
 
         // 确定保存文件名：优先使用UP主和标题，若已预解析则生成优雅友好的文件名
@@ -416,7 +433,9 @@ public class BilibiliDownloader {
         var args = [
             scriptPath,
             url,
-            targetURL.path
+            targetURL.path,
+            "--quality",
+            quality.rawValue
         ]
 
         if let info = activeInfo {
@@ -468,6 +487,10 @@ public class BilibiliDownloader {
 
                 process.terminationHandler = { proc in
                     fileHandle.readabilityHandler = nil
+                    let remaining = fileHandle.readDataToEndOfFile()
+                    if let remStr = String(data: remaining, encoding: .utf8) {
+                        collector.fullOutput += remStr
+                    }
                     WorkExecutionManager.shared.unregisterProcess(id: procToken)
                     WorkExecutionManager.shared.unregisterActiveFile(targetURL)
 

@@ -49,6 +49,12 @@ public class AppSettings: ObservableObject {
     private let kEnableClassifiedFolders = "lpf_enable_classified_folders"
     private let kAutoCheckUpdates = "lpf_auto_check_updates"
     private let kGitHubToken = "lpf_github_token"
+    private let kDefaultVideoQuality = "lpf_default_video_quality"
+
+    // MARK: - 清晰度偏好 (支持多清晰度选择，至少包含 3 个清晰度，1080P 为系统最大上限)
+    @Published public var defaultVideoQuality: VideoQualityOption {
+        didSet { defaults.set(defaultVideoQuality.rawValue, forKey: kDefaultVideoQuality) }
+    }
 
     // MARK: - 存储与基础
     @Published public var duplicatePolicy: DuplicatePolicy {
@@ -201,6 +207,10 @@ public class AppSettings: ObservableObject {
 
         // 14. GitHub 访问令牌（默认为空）
         self.githubToken = defaults.string(forKey: kGitHubToken) ?? ""
+
+        // 15. 默认下载清晰度：默认为 1080P (最大清晰度)
+        let savedQualityStr = defaults.string(forKey: kDefaultVideoQuality) ?? VideoQualityOption.defaultQuality.rawValue
+        self.defaultVideoQuality = VideoQualityOption(rawValue: savedQualityStr) ?? .p1080
     }
 
     public var downloadURL: URL {

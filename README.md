@@ -31,6 +31,8 @@
   - 默认工作目录 `~/Downloads/cduyzhMediaForge`，自动按 `[平台 (小红书/推特/哔哩哔哩/默认)] ➔ [日期 (如 26年10月17日)] ➔ [类别 (视频/实况/GIF/文档)]` 井然有序分流归类。
 - **多任务并发调度引擎**：
   - 支持 1~10 线程并发下载随心调节，高效调度网络请求与批量处理任务。
+- **多档下载清晰度**：
+  - 网络提取支持 1080P、720P、480P 与 360P，可设置默认档位或逐条调整。下载超过所选规格时按比例缩放；不会放大低分辨率来源。
 - **本地转换与受管缓存清理**：
   - 本地原生转换，不上传隐私数据；受管缓存白名单隔离机制，一键清空绝不误伤用户个人文件。
 
@@ -52,7 +54,7 @@
 ```
 
 从源码升级时，安装脚本会将 `cduyzh-media` 统一指向 `/Applications` 中的应用。
-当前发布包面向 Apple 芯片、macOS 14 或更新版本；构建采用 Ad-hoc 签名，尚无 Developer ID 签名及 Apple 公证。网络解析依赖本机 `python3`，哔哩哔哩音视频合并与去水印依赖 `ffmpeg`；这些工具不随 App 内置。本地实况与 GIF 转换使用系统原生框架。
+当前发布包面向 Apple 芯片、macOS 14 或更新版本；构建采用 Ad-hoc 签名，尚无 Developer ID 签名及 Apple 公证。网络解析依赖本机 `python3`，哔哩哔哩音视频合并、去水印与分辨率缩放依赖 `ffmpeg`；这些工具不随 App 内置。本地实况与 GIF 转换使用系统原生框架。
 
 ---
 
@@ -77,6 +79,9 @@ cduyzh-media "https://www.xiaohongshu.com/explore/6aae6114000000002700a168"
 
 # 3. 将视频转为公众号优化 GIF
 cduyzh-media --gif video.mp4
+
+# 3.1 以 720P 下载网络视频
+cduyzh-media --download --quality 720p "https://www.bilibili.com/video/BV..."
 
 # 4. 截取第 2.5 秒作为封面帧
 cduyzh-media --frame-time 2.5 video.mp4
@@ -158,8 +163,8 @@ python3 tests/test_network_security.py
 ```bash
 ./build.sh
 ./scripts/package-release.sh
-./scripts/release.sh --notes-file docs/releases/v1.9.0.md
-./scripts/release.sh --notes-file docs/releases/v1.9.0.md --publish
+./scripts/release.sh --notes-file docs/releases/v1.10.0.md
+./scripts/release.sh --notes-file docs/releases/v1.10.0.md --publish
 ```
 
 发布前需将已验收源码提交并推送，再创建指向该提交的版本标签。发布脚本复用已验证产物；默认只检查，`--publish` 才发布。具体参数见各脚本 `--help`。GitHub Actions 只验证标签构建并保存工件，避免另一台机器的构建覆盖已发布的本机验证包。

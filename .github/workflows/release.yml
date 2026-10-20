@@ -31,6 +31,7 @@ jobs:
           bash tests/run-cache-stats-tests.sh
           bash tests/run-install-release-tests.sh
           python3 tests/test_network_security.py
+          bash tests/run-video-quality-tests.sh
 
       - name: Build universal app
         env:

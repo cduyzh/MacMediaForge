@@ -30,6 +30,7 @@ public final class AppSettings {
     public var downloadURL = FileManager.default.temporaryDirectory
     var removeWatermark = false
     public var duplicatePolicy: DuplicatePolicy = .rename
+    public var defaultVideoQuality: VideoQualityOption = .p1080
 }
 final class DownloadCacheManager {
     static let shared = DownloadCacheManager()
@@ -60,7 +61,14 @@ struct HistoryOutputItem {
     func record(source: OperationSource, platform: String, title: String, originalURLOrPath: String?, status: OperationStatus, duration: Double, outputs: [HistoryOutputItem] = [], note: String? = nil) {}
 }
 enum NetworkVideoDownloader {
-    static func downloadVideo(url: String, targetDirectory: URL?, videoOutputDir: URL?, shouldRemoveWatermark: Bool, progressHandler: (String) -> Void) async throws -> URL {
+    static func downloadVideo(
+        url: String,
+        targetDirectory: URL?,
+        videoOutputDir: URL?,
+        shouldRemoveWatermark: Bool,
+        quality: VideoQualityOption = .p1080,
+        progressHandler: (String) -> Void
+    ) async throws -> URL {
         throw ConversionError.invalidVideo // CLI 回归只允许本地媒体，不访问网络。
     }
 }

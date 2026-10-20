@@ -47,6 +47,38 @@ QUALITY_MAP = {
     16: "360P 流畅"
 }
 
+# 1080P 为全系统最大允许清晰度，严格屏蔽 120 (4K), 125 (HDR), 126 (杜比视界), 127 (8K)
+MAX_ALLOWED_QUALITY_ID = 116
+
+QUALITY_TIER_QN_MAP = {
+    "1080p": 116,
+    "1080": 116,
+    "720p": 64,
+    "720": 64,
+    "480p": 32,
+    "480": 32,
+    "360p": 16,
+    "360": 16
+}
+
+def normalize_quality_tier(q_str: Optional[str]) -> str:
+    """归一化清晰度为标准等级标签 (支持 1080p, 720p, 480p, 360p，最大 1080p)"""
+    if not q_str:
+        return "1080p"
+    clean = str(q_str).lower().strip()
+    if "1080" in clean or clean in ("max", "fhd", "origin", "原画", "超清"):
+        return "1080p"
+    elif "720" in clean or clean in ("hd", "高清"):
+        return "720p"
+    elif "480" in clean or clean in ("sd", "标清", "清晰"):
+        return "480p"
+    elif "360" in clean or clean in ("ld", "流畅"):
+        return "360p"
+    # 超出 1080p 规格自动封顶为 1080p
+    if "4k" in clean or "2160" in clean or "2k" in clean or "1440" in clean or "8k" in clean:
+        return "1080p"
+    return "1080p"
+
 def log_progress(msg: str):
     """向标准输出打印进度信息供 Swift 捕获并更新 UI"""
     print(msg, flush=True)
@@ -146,8 +178,8 @@ def get_bilibili_cookie() -> str:
 
     return ""
 
-def fetch_bilibili_info(url_or_text: str, custom_cookie: Optional[str] = None) -> Dict[str, Any]:
-    """解析 Bilibili 视频基础元数据与最高画质流信息"""
+def fetch_bilibili_info(url_or_text: str, custom_cookie: Optional[str] = None, target_quality: str = "1080p") -> Dict[str, Any]:
+    """解析 Bilibili 视频基础元数据与指定画质流信息（最大清晰度为 1080P）"""
     bvid, full_url = extract_bvid_and_raw_url(url_or_text)
     if not bvid:
         raise ValueError(f"未能在文本或链接中识别出有效的 B站 BV号: {url_or_text}")
@@ -295,8 +327,10 @@ def fetch_bilibili_info(url_or_text: str, custom_cookie: Optional[str] = None) -
             }]
         }
 
-    # 2. 请求播放流 API (优先 DASH 模式以获取 1080P60 / 1080P 高码率)
-    playurl_api = f"https://api.bilibili.com/x/player/playurl?bvid={bvid}&cid={cid}&qn=116&fnval=4048&fnver=0&fourk=1"
+    # 2. 请求播放流 API (严格封顶为 1080P，不开启 4K)
+    target_tier = normalize_quality_tier(target_quality)
+    req_qn = QUALITY_TIER_QN_MAP.get(target_tier, 116)
+    playurl_api = f"https://api.bilibili.com/x/player/playurl?bvid={bvid}&cid={cid}&qn={req_qn}&fnval=4048&fnver=0&fourk=0"
     req_play = urllib.request.Request(playurl_api, headers=req_headers)
     with urllib.request.urlopen(req_play, context=SSL_CTX, timeout=15) as resp:
         play_data = json.loads(resp.read().decode('utf-8'))
@@ -307,6 +341,7 @@ def fetch_bilibili_info(url_or_text: str, custom_cookie: Optional[str] = None) -
     quality_name = "高清"
     quality_id = 64
     direct_url = ""
+    available_qualities = ["1080p", "720p", "480p", "360p"]
 
     if play_data.get('code') == 0:
         p_data = play_data.get('data', {})
@@ -314,9 +349,38 @@ def fetch_bilibili_info(url_or_text: str, custom_cookie: Optional[str] = None) -
         if dash and dash.get('video'):
             is_dash = True
             dash_videos = dash.get('video', [])
+            # 严格限制最大清晰度为 1080P，过滤掉大于 116 的超清规格 (如 120 4K, 125 HDR, 126 杜比视界, 127 8K)
+            capped_videos = [v for v in dash_videos if v.get('id', 0) <= MAX_ALLOWED_QUALITY_ID]
+            if not capped_videos:
+                capped_videos = dash_videos
+
+            # 统计可用的全部清晰度列表（至少包含 3 个选项，最大为 1080p）
+            found_ids = {v.get('id', 0) for v in capped_videos}
+            extracted_qualities = []
+            if any(i in found_ids for i in (116, 112, 80)):
+                extracted_qualities.append("1080p")
+            if any(i in found_ids for i in (74, 64)):
+                extracted_qualities.append("720p")
+            if any(i in found_ids for i in (32,)):
+                extracted_qualities.append("480p")
+            if any(i in found_ids for i in (16,)):
+                extracted_qualities.append("360p")
+            if len(extracted_qualities) >= 2:
+                available_qualities = extracted_qualities
+
+            # 根据目标清晰度筛选对应区间的视频轨
+            max_target_qn = 116
+            if target_tier == "720p": max_target_qn = 74
+            elif target_tier == "480p": max_target_qn = 32
+            elif target_tier == "360p": max_target_qn = 16
+
+            tier_candidates = [v for v in capped_videos if v.get('id', 0) <= max_target_qn]
+            if not tier_candidates:
+                tier_candidates = capped_videos
+
             # 优先选择 avc1 / H.264 编码，确保在 macOS 原生、QuickTime、AVFoundation 及照片图库中完美播放
-            avc_videos = [v for v in dash_videos if v.get('codecs', '').startswith('avc1')]
-            candidate_videos = avc_videos if avc_videos else dash_videos
+            avc_videos = [v for v in tier_candidates if v.get('codecs', '').startswith('avc1')]
+            candidate_videos = avc_videos if avc_videos else tier_candidates
             # 挑选最高清晰度且最高码率的轨
             best_video = max(candidate_videos, key=lambda x: (x.get('id', 0), x.get('bandwidth', 0)))
             quality_id = best_video.get('id', 64)
@@ -335,12 +399,13 @@ def fetch_bilibili_info(url_or_text: str, custom_cookie: Optional[str] = None) -
             if durls:
                 direct_url = durls[0].get('url', '')
                 video_url = direct_url
-                quality_id = p_data.get('quality', 64)
+                raw_qid = p_data.get('quality', 64)
+                quality_id = min(raw_qid, MAX_ALLOWED_QUALITY_ID)
                 quality_name = QUALITY_MAP.get(quality_id, "高清 720P")
 
     # 若 DASH 请求失败或未拿到直链，再尝试请求单段 MP4 (fnval=0) 作为备用
     if not video_url:
-        durl_api = f"https://api.bilibili.com/x/player/playurl?bvid={bvid}&cid={cid}&qn=64&fnval=0&fnver=0&fourk=1"
+        durl_api = f"https://api.bilibili.com/x/player/playurl?bvid={bvid}&cid={cid}&qn={req_qn}&fnval=0&fnver=0&fourk=0"
         req_durl = urllib.request.Request(durl_api, headers=req_headers)
         with urllib.request.urlopen(req_durl, context=SSL_CTX, timeout=15) as resp:
             d_data = json.loads(resp.read().decode('utf-8'))
@@ -360,6 +425,8 @@ def fetch_bilibili_info(url_or_text: str, custom_cookie: Optional[str] = None) -
         "duration": duration,
         "quality": quality_name,
         "quality_id": quality_id,
+        "selected_quality": target_tier,
+        "available_qualities": available_qualities,
         "is_dash": is_dash,
         "video_url": video_url,
         "audio_url": audio_url,
@@ -410,14 +477,16 @@ def download_stream(stream_url: str, output_path: str, label: str, bvid: str):
         dl_mb = downloaded / (1024 * 1024)
         log_progress(f"✅ {label} 下载完成 (共 {dl_mb:.1f}MB)")
 
-def download_bilibili_video(url: str, output_path: str, preparsed_data: Optional[Dict[str, Any]] = None, custom_title: Optional[str] = None, delogo: bool = False) -> Dict[str, Any]:
-    """完整执行 B站 视频拉取、流下载与 FFmpeg 无损合并封包（支持水印消除兜底）"""
+def download_bilibili_video(url: str, output_path: str, preparsed_data: Optional[Dict[str, Any]] = None, custom_title: Optional[str] = None, delogo: bool = False, target_quality: str = "1080p") -> Dict[str, Any]:
+    """完整执行 B站 视频拉取、流下载与 FFmpeg 无损合并封包（支持多清晰度选择，最大清晰度为 1080P）"""
+    norm_target = normalize_quality_tier(target_quality)
     info = preparsed_data
-    if not info:
-        log_progress("🔍 正在连接 B站 解析元数据与音视频流直链…")
-        info = fetch_bilibili_info(url)
+    # 检查预解析数据是否匹配目标清晰度且含有可用视频流直链
+    if not info or info.get('selected_quality') != norm_target or not info.get('video_url'):
+        log_progress(f"🔍 正在连接 B站 获取【{norm_target}】清晰度音视频流直链…")
+        info = fetch_bilibili_info(url, target_quality=norm_target)
     else:
-        log_progress("⚡️ 命中视频预解析缓存，直接开启极速多轨流拉取！")
+        log_progress(f"⚡️ 命中视频预解析缓存 ({norm_target})，直接开启极速多轨流拉取！")
 
     bvid = info.get('bvid', '')
     title = custom_title or info.get('title', 'B站视频')
@@ -529,8 +598,8 @@ def download_bilibili_video(url: str, output_path: str, preparsed_data: Optional
 def main():
     if len(sys.argv) < 2:
         print("用法:")
-        print("  python3 bilibili_downloader.py info <url>")
-        print("  python3 bilibili_downloader.py <url> <output_path> [--preparsed <json_path>] [--title <title>]")
+        print("  python3 bilibili_downloader.py info <url> [--quality <1080p|720p|480p|360p>]")
+        print("  python3 bilibili_downloader.py <url> <output_path> [--quality <q>] [--preparsed <json_path>] [--title <title>] [--delogo]")
         sys.exit(1)
 
     cmd = sys.argv[1]
@@ -540,8 +609,16 @@ def main():
             print("错误: 缺少 URL 参数", file=sys.stderr)
             sys.exit(1)
         url = sys.argv[2]
+        target_q = "1080p"
+        idx = 3
+        while idx < len(sys.argv):
+            if sys.argv[idx] in ("--quality", "-q") and idx + 1 < len(sys.argv):
+                target_q = sys.argv[idx + 1]
+                idx += 2
+            else:
+                idx += 1
         try:
-            info = fetch_bilibili_info(url)
+            info = fetch_bilibili_info(url, target_quality=target_q)
             print("=== JSON_RESULT_START ===")
             print(json.dumps(info, ensure_ascii=False, indent=2))
             print("=== JSON_RESULT_END ===")
@@ -560,6 +637,7 @@ def main():
         preparsed_data = None
         custom_title = None
         delogo_opt = False
+        target_q = "1080p"
 
         idx = 3
         while idx < len(sys.argv):
@@ -575,6 +653,9 @@ def main():
             elif sys.argv[idx] == "--title" and idx + 1 < len(sys.argv):
                 custom_title = sys.argv[idx + 1]
                 idx += 2
+            elif sys.argv[idx] in ("--quality", "-q") and idx + 1 < len(sys.argv):
+                target_q = sys.argv[idx + 1]
+                idx += 2
             elif sys.argv[idx] == "--delogo":
                 delogo_opt = True
                 idx += 1
@@ -582,7 +663,7 @@ def main():
                 idx += 1
 
         try:
-            res = download_bilibili_video(url, output_path, preparsed_data=preparsed_data, custom_title=custom_title, delogo=delogo_opt)
+            res = download_bilibili_video(url, output_path, preparsed_data=preparsed_data, custom_title=custom_title, delogo=delogo_opt, target_quality=target_q)
             print("\n=== JSON_SUMMARY_START ===")
             summary = {
                 "status": "ok",

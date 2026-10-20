@@ -7,11 +7,42 @@ public struct TwitterVideoItem: Identifiable, Sendable {
     public let url: String
     public let title: String
     public let quality: String
+    public let selectedQuality: String
+    public let variants: [String: String]
+    public let availableQualities: [String]
     public let tweetId: String?
     public let tweetUrl: String
     public let tweetText: String
     public let thumbnailUrl: String?
     public let index: Int
+
+    public init(
+        mediaId: String,
+        url: String,
+        title: String,
+        quality: String,
+        selectedQuality: String = "1080p",
+        variants: [String: String] = [:],
+        availableQualities: [String] = ["1080p", "720p", "480p", "360p"],
+        tweetId: String?,
+        tweetUrl: String,
+        tweetText: String,
+        thumbnailUrl: String?,
+        index: Int
+    ) {
+        self.mediaId = mediaId
+        self.url = url
+        self.title = title
+        self.quality = quality
+        self.selectedQuality = selectedQuality
+        self.variants = variants
+        self.availableQualities = availableQualities
+        self.tweetId = tweetId
+        self.tweetUrl = tweetUrl
+        self.tweetText = tweetText
+        self.thumbnailUrl = thumbnailUrl
+        self.index = index
+    }
 }
 
 public struct TwitterPostInfo: Sendable {
@@ -45,6 +76,9 @@ public struct TwitterPostInfo: Sendable {
                 "url": v.url,
                 "title": v.title,
                 "quality": v.quality,
+                "selected_quality": v.selectedQuality,
+                "variants": v.variants,
+                "available_qualities": v.availableQualities,
                 "tweet_url": v.tweetUrl,
                 "tweet_text": v.tweetText,
                 "index": v.index
@@ -64,6 +98,16 @@ public struct TwitterDownloadResult: Sendable {
     public let title: String
     public let isArticle: Bool
     public let totalVideos: Int
+    public let qualityWarnings: [String]
+
+    public init(videoURLs: [URL], markdownURL: URL?, title: String, isArticle: Bool, totalVideos: Int, qualityWarnings: [String] = []) {
+        self.videoURLs = videoURLs
+        self.markdownURL = markdownURL
+        self.title = title
+        self.isArticle = isArticle
+        self.totalVideos = totalVideos
+        self.qualityWarnings = qualityWarnings
+    }
     
     public var primaryVideoURL: URL? {
         videoURLs.first
@@ -127,14 +171,14 @@ class TwitterDownloader {
     }
     
     /// 解析推特帖子信息（包括发帖人全部视频列表、长文文章数据与 Markdown）
-    static func fetchPostInfo(url: String) async throws -> TwitterPostInfo {
+    static func fetchPostInfo(url: String, quality: VideoQualityOption = .p1080) async throws -> TwitterPostInfo {
         guard let scriptPath = locateTwitterDownloaderScript() else {
             throw DownloadError.scriptNotFound
         }
         
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["python3", scriptPath, "info", url]
+        process.arguments = ["python3", scriptPath, "info", url, "--quality", quality.rawValue]
         
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -161,6 +205,10 @@ class TwitterDownloader {
                 
                 process.terminationHandler = { proc in
                     fileHandle.readabilityHandler = nil
+                    let remaining = fileHandle.readDataToEndOfFile()
+                    if let remStr = String(data: remaining, encoding: .utf8) {
+                        collector.fullOutput += remStr
+                    }
                     WorkExecutionManager.shared.unregisterProcess(id: procToken)
                     let output = collector.fullOutput
                     if proc.terminationStatus == 0 {
@@ -186,6 +234,9 @@ class TwitterDownloader {
                                         let vUrl = v["url"] as? String ?? ""
                                         let title = v["title"] as? String ?? "video"
                                         let quality = v["quality"] as? String ?? "原画"
+                                        let selQ = v["selected_quality"] as? String ?? quality
+                                        let variants = v["variants"] as? [String: String] ?? [:]
+                                        let availQ = v["available_qualities"] as? [String] ?? ["1080p", "720p", "480p", "360p"]
                                         let vTweetId = v["tweet_id"] as? String
                                         let vTweetUrl = v["tweet_url"] as? String ?? url
                                         let vTweetText = v["tweet_text"] as? String ?? ""
@@ -197,6 +248,9 @@ class TwitterDownloader {
                                             url: vUrl,
                                             title: title,
                                             quality: quality,
+                                            selectedQuality: selQ,
+                                            variants: variants,
+                                            availableQualities: availQ,
                                             tweetId: vTweetId,
                                             tweetUrl: vTweetUrl,
                                             tweetText: vTweetText,
@@ -241,6 +295,7 @@ class TwitterDownloader {
         videoOutputDir: URL? = nil,
         markdownOutputDir: URL? = nil,
         exportMarkdown: Bool = true,
+        quality: VideoQualityOption = .p1080,
         preParsedInfo: TwitterPostInfo? = nil,
         progressHandler: @escaping (String) -> Void
     ) async throws -> TwitterDownloadResult {
@@ -265,7 +320,9 @@ class TwitterDownloader {
             "--video-dir",
             targetVideoDir.path,
             "--md-dir",
-            targetMdDir.path
+            targetMdDir.path,
+            "--quality",
+            quality.rawValue
         ]
         if exportMarkdown {
             args.append("--export-md")
@@ -329,6 +386,10 @@ class TwitterDownloader {
                 
                 process.terminationHandler = { proc in
                     fileHandle.readabilityHandler = nil
+                    let remaining = fileHandle.readDataToEndOfFile()
+                    if let remStr = String(data: remaining, encoding: .utf8) {
+                        collector.fullOutput += remStr
+                    }
                     WorkExecutionManager.shared.unregisterProcess(id: procToken)
                     let output = collector.fullOutput
                     if proc.terminationStatus == 0 {

@@ -46,7 +46,7 @@ CONTENTS="$STAGED_APP/Contents"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 
 SWIFT_FILES=(
-    main.swift MediaForgeApp.swift VideoItem.swift WorkExecutionManager.swift
+    main.swift MediaForgeApp.swift VideoQualityOption.swift VideoItem.swift WorkExecutionManager.swift
     ConversionEngine.swift CLIHandler.swift ContentView.swift MediaForgeUI.swift
     TwitterDownloader.swift BilibiliDownloader.swift LivePhotoExtractor.swift GIFConverter.swift
     CategorizedStorageManager.swift DownloadCacheManager.swift SettingsView.swift
@@ -107,7 +107,11 @@ if $INSTALL; then
     local_args=()
     if $KILL_RUNNING; then local_args+=("--kill"); fi
     if $RESTART; then local_args+=("--restart"); fi
-    "$PROJECT_ROOT/scripts/install-local.sh" "${local_args[@]}"
+    if ((${#local_args[@]} > 0)); then
+        "$PROJECT_ROOT/scripts/install-local.sh" "${local_args[@]}"
+    else
+        "$PROJECT_ROOT/scripts/install-local.sh"
+    fi
 else
     echo "安装/升级唯一应用入口：./scripts/install-local.sh --dry-run，确认后 ./scripts/install-local.sh"
 fi

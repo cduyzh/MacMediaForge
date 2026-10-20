@@ -48,6 +48,8 @@ public class PreParsedVideoItem: Identifiable, ObservableObject {
     @Published public var previewImageURL: String?
     @Published public var localPreviewPath: String?
     @Published public var quality: String = ""
+    @Published public var selectedQuality: VideoQualityOption? = nil
+    @Published public var availableQualities: [VideoQualityOption] = VideoQualityOption.allCases
     @Published public var videoCount: Int = 1
     @Published public var videoDirectURLs: [String] = []
 
@@ -68,6 +70,8 @@ public class PreParsedVideoItem: Identifiable, ObservableObject {
         self.author = "连接中…"
         self.status = .pending
         self.isSelectedForDownload = true
+        self.selectedQuality = AppSettings.shared.defaultVideoQuality
+        self.availableQualities = VideoQualityOption.allCases
     }
 }
 
@@ -171,10 +175,11 @@ public class NetworkVideoPreParser: ObservableObject {
     /// 执行多平台针对性解析与首帧提取
     private func executeParse(for item: PreParsedVideoItem) async {
         let url = item.originalURL
+        let requestedQuality = item.selectedQuality ?? AppSettings.shared.defaultVideoQuality
 
         do {
             if item.platform == .twitter {
-                let postInfo = try await TwitterDownloader.fetchPostInfo(url: url)
+                let postInfo = try await TwitterDownloader.fetchPostInfo(url: url, quality: requestedQuality)
                 if Task.isCancelled { return }
 
                 item.twitterPostInfo = postInfo
@@ -208,6 +213,11 @@ public class NetworkVideoPreParser: ObservableObject {
                 item.videoDirectURLs = postInfo.videos.map { $0.url }
                 if let firstV = postInfo.videos.first {
                     item.quality = firstV.quality
+                    item.selectedQuality = VideoQualityOption.from(string: firstV.selectedQuality)
+                    let qList = firstV.availableQualities.map { VideoQualityOption.from(string: $0) }
+                    if !qList.isEmpty {
+                        item.availableQualities = Array(NSOrderedSet(array: qList)) as? [VideoQualityOption] ?? VideoQualityOption.allCases
+                    }
                 }
 
                 // 提取封面图 / 第一帧
@@ -218,7 +228,7 @@ public class NetworkVideoPreParser: ObservableObject {
                 item.status = .ready
 
             } else if item.platform == .xhs {
-                let xhsInfo = try await NetworkVideoDownloader.fetchXHSInfo(url: url)
+                let xhsInfo = try await NetworkVideoDownloader.fetchXHSInfo(url: url, quality: requestedQuality)
                 if Task.isCancelled { return }
 
                 item.xhsParsedInfo = xhsInfo
@@ -228,7 +238,9 @@ public class NetworkVideoPreParser: ObservableObject {
                     item.videoDirectURLs = [vUrl]
                 }
                 item.videoCount = 1
-                item.quality = "高清无水印"
+                item.selectedQuality = xhsInfo.selectedQuality
+                item.quality = xhsInfo.selectedQuality.shortLabel
+                item.availableQualities = VideoQualityOption.allCases
 
                 await self.loadThumbnail(for: item, remoteImageURL: xhsInfo.coverUrl, directVideoURL: xhsInfo.videoUrl)
                 item.status = .ready
@@ -246,7 +258,7 @@ public class NetworkVideoPreParser: ObservableObject {
                     return
                 }
 
-                let biliInfo = try await BilibiliDownloader.fetchVideoInfo(url: url)
+                let biliInfo = try await BilibiliDownloader.fetchVideoInfo(url: url, quality: requestedQuality)
                 if Task.isCancelled { return }
 
                 item.bilibiliParsedInfo = biliInfo
@@ -258,6 +270,13 @@ public class NetworkVideoPreParser: ObservableObject {
                 }
                 item.videoCount = biliInfo.collection?.epCount ?? 1
                 item.quality = biliInfo.quality
+                item.selectedQuality = VideoQualityOption.from(string: biliInfo.selectedQuality)
+                let qList = biliInfo.availableQualities.map { VideoQualityOption.from(string: $0) }
+                if !qList.isEmpty {
+                    var set = [VideoQualityOption]()
+                    for q in qList where !set.contains(q) { set.append(q) }
+                    item.availableQualities = set
+                }
 
                 // 如果包含合集或多P，将所有单集注入快速缓存
                 if let coll = biliInfo.collection {
@@ -273,7 +292,8 @@ public class NetworkVideoPreParser: ObservableObject {
                 item.author = URL(string: url)?.host ?? "网络视频"
                 item.videoCount = 1
                 item.videoDirectURLs = [url]
-                item.quality = "原画"
+                item.quality = "高清 1080P"
+                item.availableQualities = VideoQualityOption.allCases
 
                 await self.loadThumbnail(for: item, remoteImageURL: nil, directVideoURL: url)
                 item.status = .ready

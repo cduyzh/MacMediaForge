@@ -36,6 +36,19 @@ public struct ReleaseLogData {
 
     public static let releases: [ReleaseLogItem] = [
         ReleaseLogItem(
+            version: "v1.10.0",
+            releaseDate: "2026年10月20日",
+            badgeText: "多档清晰度",
+            summary: "网络下载新增 1080P、720P、480P 与 360P 选择，并把全局画质上限固定在 1080P。",
+            highlights: [
+                "可在设置中选择默认下载清晰度，也能直接在预解析视频卡片上调整单项画质。",
+                "X/Twitter、哔哩哔哩与小红书解析和下载按所选档位工作；本机可用 FFmpeg 时会将超规格来源按比例缩至目标分辨率。",
+                "无法确认或调整视频分辨率时显示失败原因并保留源文件，不再悄悄以错误清晰度完成任务。",
+                "只按 JSON 解析远程页面状态，避免执行网页返回的脚本内容。"
+            ],
+            isLatest: true
+        ),
+        ReleaseLogItem(
             version: "v1.9.0",
             releaseDate: "2026年10月18日",
             badgeText: "界面与质量更新",
@@ -46,7 +59,7 @@ public struct ReleaseLogData {
                 "修复转换输出冲突、失败退出码与取消清理范围，补齐功能回归测试。",
                 "统一应用版本信息；安装到「应用程序」，将旧构建归档，避免搜索出现多个副本。"
             ],
-            isLatest: true
+            isLatest: false
         ),
         ReleaseLogItem(
             version: "v1.8.0",
