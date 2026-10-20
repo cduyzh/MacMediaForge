@@ -69,18 +69,7 @@ class CLIHandler {
             case "-h", "--help":
                 printUsage(); exit(0)
             case "-v", "--version":
-                var version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-                var build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-                if version == nil {
-                    let arg0 = CommandLine.arguments.first ?? ""
-                    let execURL = URL(fileURLWithPath: arg0).resolvingSymlinksInPath()
-                    let bundleURL = execURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-                    if let bundle = Bundle(url: bundleURL) {
-                        version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-                        build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-                    }
-                }
-                print("cduyzh MediaForge \(version ?? "development") (\(build ?? "unknown"))")
+                print("cduyzh MediaForge \(AppMetadata.shortVersion ?? "development") (\(AppMetadata.build ?? "unknown"))")
                 exit(0)
             case "-u", "--check-update", "--update":
                 print("正在连接 GitHub 检查最新版本…")

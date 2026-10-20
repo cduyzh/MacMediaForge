@@ -96,12 +96,12 @@ public class UpdateChecker: ObservableObject {
 
     /// 获取当前应用版本（例如 "1.9.0"）
     public nonisolated static var currentAppVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.9.0"
+        AppMetadata.shortVersion ?? "development"
     }
 
     /// 获取当前应用构建号（例如 "9"）
     public nonisolated static var currentAppBuild: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "9"
+        AppMetadata.build ?? "unknown"
     }
 
     // MARK: - 语义化版本解析与比对

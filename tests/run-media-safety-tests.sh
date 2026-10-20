@@ -10,6 +10,7 @@ FFMPEG_BIN="$(command -v ffmpeg)"
 "$FFMPEG_BIN" -hide_banner -loglevel error -f lavfi -i 'color=c=blue:s=160x120:r=30:d=2' -c:v libx264 -pix_fmt yuv420p "$TEST_WORK_DIR/source.mov"
 xcrun swiftc -parse-as-library \
     -module-cache-path "$TEST_WORK_DIR/module-cache" \
+    "$PROJECT_DIR/AppMetadata.swift" \
     "$PROJECT_DIR/VideoQualityOption.swift" \
     "$PROJECT_DIR/ConversionEngine.swift" "$PROJECT_DIR/GIFConverter.swift" \
     "$PROJECT_DIR/WorkExecutionManager.swift" "$PROJECT_DIR/CategorizedStorageManager.swift" \

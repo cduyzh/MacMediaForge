@@ -46,7 +46,7 @@ CONTENTS="$STAGED_APP/Contents"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 
 SWIFT_FILES=(
-    main.swift MediaForgeApp.swift VideoQualityOption.swift VideoItem.swift WorkExecutionManager.swift
+    main.swift MediaForgeApp.swift AppMetadata.swift VideoQualityOption.swift VideoItem.swift WorkExecutionManager.swift
     ConversionEngine.swift CLIHandler.swift ContentView.swift MediaForgeUI.swift
     TwitterDownloader.swift BilibiliDownloader.swift LivePhotoExtractor.swift GIFConverter.swift
     CategorizedStorageManager.swift DownloadCacheManager.swift SettingsView.swift

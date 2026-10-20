@@ -8,6 +8,7 @@ trap 'exit 143' TERM
 
 xcrun swiftc -parse-as-library \
     -module-cache-path "$TEST_WORK_DIR/module-cache" \
+    "$PROJECT_DIR/AppMetadata.swift" \
     "$PROJECT_DIR/VideoQualityOption.swift" \
     "$PROJECT_DIR/AppSettings.swift" \
     "$PROJECT_DIR/UpdateChecker.swift" \
