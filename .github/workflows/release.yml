@@ -1,0 +1,53 @@
+name: Verify Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify version tag
+        shell: bash
+        run: |
+          source scripts/app-common.sh
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v$APP_VERSION" ]]; then
+            echo "Tag and Info.plist versions differ."
+            exit 1
+          fi
+
+      - name: Check local test suites
+        run: |
+          bash tests/run-menu-bar-state-tests.sh
+          bash tests/run-menu-bar-icon-tests.sh
+          bash tests/run-conversion-state-tests.sh
+          bash tests/run-cache-stats-tests.sh
+          bash tests/run-install-release-tests.sh
+          python3 tests/test_network_security.py
+          bash tests/run-video-quality-tests.sh
+
+      - name: Build universal app
+        env:
+          MEDIAFORGE_ARCHS: arm64 x86_64
+        run: bash build.sh
+
+      - name: Package verified artifacts
+        run: bash scripts/package-release.sh
+
+      # GitHub Release 由本地 scripts/release.sh 发布已验收工件。
+      # CI 只保留自己的验证工件，不重复创建或覆盖 Release。
+      - name: Upload verification artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-mediaforge-${{ github.ref_name }}
+          path: dist/v*/
+          if-no-files-found: error
